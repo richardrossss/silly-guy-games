@@ -382,7 +382,7 @@ addEventListener('keydown', e=>{
   if(k === 'p'){ togglePreview(); return; }
   if(k === 'escape'){ openMenu(); return; }
   if(k === 'enter' && state === 'star'){ startPlay(); return; }
-  if(k === 'c' && state !== 'setup' && !keys.c){ keys.c = true; clap(); return; }
+  if(k === 'c' && state !== 'setup' && game !== 'marble' && !keys.c){ keys.c = true; clap(); return; }
   if(state !== 'play') return;
   if(game === 'band'){
     if(k === 'a' && !keys.a) bandDrum(0);
@@ -485,7 +485,7 @@ function update(dt, now){
   let dirL = { x:-0.6, y:0.8 }, dirR = { x:0.6, y:0.8 };
 
   leanF = 0;
-  if(sig.clap){ sig.clap = false; if(state === 'play' || state === 'star') clap(); }
+  if(sig.clap){ sig.clap = false; if((state === 'play' || state === 'star') && game !== 'marble') clap(); }
   if(state === 'play' && game === 'me'){
     const r = updateMe(dt, now, fresh);
     dirL = r.dirL; dirR = r.dirR; lift = r.lift;
@@ -840,7 +840,6 @@ function draw(now){
   const t = now/1000;
   if(game === 'marble' && state === 'play'){
     drawMarble(t);
-    drawGuy(t);
     drawMarbleHUD(t);
   } else if(game === 'puzzle' && state === 'play'){
     drawPuzzleBG(t);
