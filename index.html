@@ -101,7 +101,7 @@ let input = 'none';    // camera | keys
 let game = 'me';       // me | fly | bubbles | band | puzzle
 try { game = localStorage.getItem('sgf-game') || 'me'; } catch(e){}
 const HOW = {
-  me: 'You are the silly guy! Wave your arms, wiggle, lean, bounce and jump. Clap your hands to change him!',
+  me: 'You are the silly guy! Flap and flop to puff him up and start the music. Stop moving and he flops over. Clap to change him!',
   fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
   puzzle: 'Hold your hand on a piece to pick it up, then carry it to where it goes!',
@@ -328,6 +328,9 @@ function computeSignals(now){
     sig.rv = { x:(R.w.x-prevRw.x)/sw/dt, y:(R.w.y-prevRw.y)/sw/dt };
   } else { sig.lv = {x:0,y:0}; sig.rv = {x:0,y:0}; }
   prevLw = { x:L.w.x, y:L.w.y }; prevRw = { x:R.w.x, y:R.w.y };
+  // how much he's moving overall: hands, flapping, bouncing
+  const rawE = (Math.hypot(sig.lv.x, sig.lv.y) + Math.hypot(sig.rv.x, sig.rv.y))/2 + sig.flapLift*0.4 + Math.abs(sig.lean)*0.6;
+  sig.energy = (sig.energy || 0)*0.75 + Math.min(rawE, 12)*0.25;
   // clap: hands apart, then slam together in front of the body
   const hd = Math.hypot(L.w.x-R.w.x, L.w.y-R.w.y)/sw;
   if(hd > 1.1) lastApart = now;
@@ -448,7 +451,7 @@ function startPlay(){
   nextBalloon = performance.now() + 1200;
   resetGuy(game !== 'fly');
   sfx.ready();
-  if(game === 'me'){ me.x = W/2; me.lastTip = performance.now(); say('You are the silly guy! Clap to change me!', true); }
+  if(game === 'me'){ me.x = W/2; me.energy = 0; me.stillT = 0; me.lastTip = performance.now(); startMeMusic(); say('Flap your arms to puff me up!', true); }
   else if(game === 'fly'){ flash('Fly!', 1.2); say('Flap your arms to fly!', true); }
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
@@ -606,6 +609,11 @@ function updateBody(dt, t, dirL, dirR, lift){
     b0.x = guy.x; b0.y = guy.y - 46*S; b0.px = b0.x; b0.py = b0.y;
     if(dipT > 0) dipT -= dt; else if(Math.random() < dt*(game === 'me' && state === 'play' ? 0.05 : 0.14)) dipT = rnd(0.25, 0.5);
     let target = dipT > 0 ? -0.3 : 1.7 + Math.sin(t*1.7)*0.45 + Math.sin(t*4.3)*0.3 + lift*0.15;
+    if(game === 'me' && state === 'play'){
+      // no moving, no air: he only stands up when you flap and flop
+      const E = me.energy;
+      target = dipT > 0 ? -0.3 : -0.7 + E*2.7 + (Math.sin(t*1.7)*0.45 + Math.sin(t*4.3)*0.3)*E + lift*0.12 + me.beat*0.5*E;
+    }
     if(guy.spinT > 0) target += 2.6;
     air = lerp(air, target, 0.12);
     for(let i=1;i<N;i++){
@@ -793,7 +801,7 @@ function drawGuy(t){
   ctx.fillStyle = BODY; ctx.beginPath(); ctx.arc(0, 0, BW*0.42, Math.PI, 0); ctx.lineTo(BW*0.42, 50*S); ctx.lineTo(-BW*0.42, 50*S); ctx.fill();
   if(sk.under) sk.under(BW, t);
   const lx = clamp(guy.vx/(600*S), -1, 1), ly = clamp(guy.vy/(800*S), -1, 1);
-  for(const sd of [-1,1]){
+  if(!sk.noEyes) for(const sd of [-1,1]){
     const ex = sd*11*S, ey = 8*S;
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, ey, 9*S, 12*S, 0, 0, 7); ctx.fill();
     ctx.fillStyle = '#1b1b2e';
@@ -845,6 +853,7 @@ function draw(now){
   ctx.globalAlpha = 1;
   if(SKINS[skinI].snow) drawSnow(t);
   drawSkinLabel(now);
+  if(state === 'play' && game === 'me') drawMeMeter(t);
   if(state === 'play' && game === 'fly') drawRow();
   if(state === 'play' && game === 'bubbles') drawBubbleRow();
   if(state === 'star' && input === 'camera'){
@@ -1467,6 +1476,20 @@ function topHat(BW, col, bandCol, h){
 }
 const SKINS = [
   { name:'Classic Red', say:'Classic red!', body:'#ff3b52', dark:'#d61f3a', band:'#ffc42e' },
+  // you! the camera puts the player's face on the silly guy
+  { name:'Your Face', say:'Hey, it\'s you!', body:'#ffd23b', dark:'#d9a90f', band:'#ff3b52',
+    over(BW){
+      if(input !== 'camera' || !smooth || video.readyState < 2 || performance.now() - lastPoseT > 800) return;
+      const n = smooth[0], e1 = smooth[7], e2 = smooth[8];
+      const ew = Math.hypot((e1.x-e2.x)*vw, (e1.y-e2.y)*vh);
+      const size = Math.max(50, ew*1.7), R = 44*S, cy = 14*S;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(0, cy, R, 0, 7); ctx.clip();
+      if(mode === 'front') ctx.scale(-1, 1);
+      try { ctx.drawImage(video, n.x*vw - size/2, n.y*vh - size*0.55, size, size, -R, cy - R, R*2, R*2); } catch(e){}
+      ctx.restore();
+      ctx.strokeStyle = '#d9a90f'; ctx.lineWidth = 6*S; ctx.beginPath(); ctx.arc(0, cy, R, 0, 7); ctx.stroke();
+    } },
   // holidays
   { name:'Turkey', say:'Gobble gobble! I\'m a turkey!', body:'#8a5a2b', dark:'#5e3a17', band:'#c98a4b', noHair:true,
     back(BW, t){
@@ -1525,6 +1548,56 @@ const SKINS = [
   { name:'Leprechaun', say:'I\'m a leprechaun!', body:'#36b04a', dark:'#1f7a2e', band:'#ffd23b', noHair:true,
     under(BW){ fillPath('#ff7a1f', ()=>ctx.ellipse(0, 44*S, BW*0.44, 18*S, 0, 0, 7)); },
     over(BW){ topHat(BW, '#1f7a2e', '#1b1b2e', 38); fillPath('#ffd23b', ()=>ctx.rect(-7*S, -BW*0.38 - 16*S, 14*S, 10*S)); } },
+  // animals
+  { name:'Puppy', say:'Woof woof! I\'m a puppy!', body:'#c98a4b', dark:'#8a5a2b', band:'#f5deb3', noHair:true,
+    under(){ fillPath('#f5deb3', ()=>ctx.ellipse(0, 28*S, 20*S, 15*S, 0, 0, 7)); },
+    over(BW, t){
+      for(const sd of [-1,1]){ ctx.save(); ctx.translate(sd*BW*0.48, -BW*0.25); ctx.rotate(sd*(0.35 + Math.sin(t*6)*0.12));
+        fillPath('#6b3f1c', ()=>ctx.ellipse(0, 22*S, 11*S, 26*S, 0, 0, 7)); ctx.restore(); }
+      fillPath('#2b1a10', ()=>ctx.ellipse(0, 21*S, 7*S, 5*S, 0, 0, 7));
+      fillPath('#ff6f8f', ()=>ctx.roundRect(-5*S, 36*S, 10*S, 12*S, [0,0,5*S,5*S]));
+    } },
+  { name:'Kitty', say:'Meow! I\'m a kitty!', body:'#9aa3b5', dark:'#6b7488', band:'#ffffff', noHair:true,
+    over(BW){
+      for(const sd of [-1,1]){ fillPath('#6b7488', ()=>{ ctx.moveTo(sd*BW*0.1, -BW*0.42); ctx.lineTo(sd*BW*0.45, -BW*1.0); ctx.lineTo(sd*BW*0.5, -BW*0.15); });
+        fillPath('#ffb3d1', ()=>{ ctx.moveTo(sd*BW*0.2, -BW*0.4); ctx.lineTo(sd*BW*0.42, -BW*0.8); ctx.lineTo(sd*BW*0.43, -BW*0.25); }); }
+      fillPath('#ff6f9a', ()=>{ ctx.moveTo(-5*S, 21*S); ctx.lineTo(5*S, 21*S); ctx.lineTo(0, 27*S); });
+      ctx.strokeStyle = '#3a3f55'; ctx.lineWidth = 2.5*S;
+      for(const sd of [-1,1]) for(const dy of [-4,2,8]){ ctx.beginPath(); ctx.moveTo(sd*8*S, 25*S); ctx.lineTo(sd*34*S, (25+dy*1.5)*S); ctx.stroke(); }
+    } },
+  { name:'Tiger', say:'Roar! I\'m a tiger!', body:'#ff8a1f', dark:'#c45f00', band:'#2b1a10', noHair:true,
+    over(BW){
+      for(const sd of [-1,1]){ dot(sd*BW*0.4, -BW*0.38, 12*S, '#c45f00'); dot(sd*BW*0.4, -BW*0.38, 6*S, '#fff'); }
+      ctx.strokeStyle = '#2b1a10'; ctx.lineWidth = 5*S;
+      for(const sd of [-1,1]){ ctx.beginPath(); ctx.moveTo(sd*BW*0.42, 0); ctx.lineTo(sd*BW*0.22, 6*S); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(-6*S, -BW*0.4); ctx.lineTo(0, -BW*0.25); ctx.lineTo(6*S, -BW*0.4); ctx.stroke();
+      fillPath('#2b1a10', ()=>ctx.ellipse(0, 21*S, 6*S, 4*S, 0, 0, 7));
+    } },
+  { name:'Bear', say:'I\'m a big bear!', body:'#8a5a2b', dark:'#5e3a17', band:'#c98a4b', noHair:true,
+    under(){ fillPath('#d9b48a', ()=>ctx.ellipse(0, 28*S, 18*S, 14*S, 0, 0, 7)); },
+    over(BW){ for(const sd of [-1,1]){ dot(sd*BW*0.42, -BW*0.42, 13*S, '#5e3a17'); dot(sd*BW*0.42, -BW*0.42, 7*S, '#d9b48a'); }
+      fillPath('#2b1a10', ()=>ctx.ellipse(0, 21*S, 7*S, 5*S, 0, 0, 7)); } },
+  { name:'Lion', say:'Roar! I\'m a lion!', body:'#f0b43b', dark:'#c48a12', band:'#ffd780', noHair:true,
+    back(BW, t){ for(let i=0;i<14;i++){ const a = i/14*Math.PI*2 + Math.sin(t*5+i)*0.05;
+      fillPath(i%2 ? '#b0641a' : '#d4802a', ()=>ctx.ellipse(Math.cos(a)*BW*0.62, 10*S + Math.sin(a)*BW*0.75, 13*S, 20*S, a + Math.PI/2, 0, 7)); } },
+    over(){ fillPath('#5a3414', ()=>{ ctx.moveTo(-6*S, 19*S); ctx.lineTo(6*S, 19*S); ctx.lineTo(0, 25*S); }); } },
+  { name:'Frog', say:'Ribbit! I\'m a frog!', body:'#4cc94c', dark:'#2e8f2e', band:'#b6f27a', noHair:true, noEyes:true,
+    over(BW, t){ for(const sd of [-1,1]){ dot(sd*13*S, -BW*0.48, 15*S, '#2e8f2e'); dot(sd*13*S, -BW*0.48, 12*S, '#fff');
+      dot(sd*13*S + Math.sin(t*3)*3*S, -BW*0.46, 6*S, '#1b1b2e'); }
+      ctx.strokeStyle = '#1d6b1d'; ctx.lineWidth = 4*S; ctx.beginPath(); ctx.arc(0, 14*S, 20*S, 0.3, Math.PI-0.3); ctx.stroke(); } },
+  { name:'Piggy', say:'Oink oink! I\'m a piggy!', body:'#ffa6c1', dark:'#e57a9c', band:'#ffd0de', noHair:true,
+    over(BW){ for(const sd of [-1,1]) fillPath('#e57a9c', ()=>{ ctx.moveTo(sd*BW*0.15, -BW*0.42); ctx.lineTo(sd*BW*0.55, -BW*0.75); ctx.lineTo(sd*BW*0.48, -BW*0.12); });
+      fillPath('#ff8fb0', ()=>ctx.ellipse(0, 22*S, 14*S, 9*S, 0, 0, 7)); dot(-5*S, 22*S, 3*S, '#a3405f'); dot(5*S, 22*S, 3*S, '#a3405f'); } },
+  { name:'Dinosaur', say:'Stomp stomp! I\'m a dinosaur!', body:'#5fbf6a', dark:'#3b8f45', band:'#ffd23b', noHair:true,
+    back(BW){ for(let i=-2;i<=2;i++){ const a = -Math.PI/2 + i*0.45, x = Math.cos(a)*BW*0.5, y = Math.sin(a)*BW*0.5;
+      fillPath('#ff8a2b', ()=>{ ctx.moveTo(x - 9*S, y + 4*S); ctx.lineTo(Math.cos(a)*BW*0.95, Math.sin(a)*BW*0.95); ctx.lineTo(x + 9*S, y + 4*S); }); } },
+    over(){ for(let i=-1;i<=1;i++) fillPath('#fff', ()=>{ ctx.moveTo(i*7*S - 3*S, 28*S); ctx.lineTo(i*7*S + 3*S, 28*S); ctx.lineTo(i*7*S, 34*S); }); } },
+  { name:'Shark', say:'Chomp chomp! I\'m a shark!', body:'#7fa6c9', dark:'#4f7699', band:'#ffffff', noHair:true,
+    over(BW){ fillPath('#4f7699', ()=>{ ctx.moveTo(-BW*0.3, -BW*0.4); ctx.quadraticCurveTo(BW*0.1, -BW*1.5, BW*0.45, -BW*1.2); ctx.lineTo(BW*0.3, -BW*0.4); });
+      for(let i=-2;i<=1;i++) fillPath('#fff', ()=>{ ctx.moveTo(i*6*S, 28*S); ctx.lineTo(i*6*S + 6*S, 28*S); ctx.lineTo(i*6*S + 3*S, 35*S); }); } },
+  { name:'Unicorn', say:'I\'m a magic unicorn!', body:'#ffffff', dark:'#d8c8ef', band:['#ff6fcf','#a35bff','#3b8bff','#3bd16a','#ffd23b'], hair:'#ff6fcf',
+    over(BW){ fillPath('#ffd23b', ()=>{ ctx.moveTo(-8*S, -BW*0.4); ctx.lineTo(0, -BW*1.35); ctx.lineTo(8*S, -BW*0.4); });
+      ctx.strokeStyle = '#e0a800'; ctx.lineWidth = 2*S; for(const y of [0.6,0.85,1.1]){ ctx.beginPath(); ctx.moveTo(-6*S*(1.3-y), -BW*y); ctx.lineTo(6*S*(1.3-y), -BW*(y+0.08)); ctx.stroke(); } } },
   // colors
   { name:'Blue', say:'Blue!', body:'#3b8bff', dark:'#1f5fcc', band:'#ffd23b' },
   { name:'Green', say:'Green!', body:'#3bd16a', dark:'#23a04b', band:'#ffffff' },
@@ -1588,7 +1661,7 @@ function drawSnow(t){
 }
 
 /* ---------- BE THE SILLY GUY ---------- */
-const me = { x:0, lastTip:0, tipI:0 };
+const me = { x:0, lastTip:0, tipI:0, energy:0, stillT:0, beat:0 };
 let meKeyPuff = -9999;
 function meJump(){
   if(guy.spinT > 0) return;
@@ -1596,7 +1669,7 @@ function meJump(){
 }
 function updateMe(dt, now, fresh){
   const t = now/1000;
-  let lift = 0, dirL, dirR, lean = 0, tx = me.x;
+  let lift = 0, dirL, dirR, lean = 0, tx = me.x, eTarget = 0;
   speed = lerp(speed, 40*S, 0.05);
   if(input === 'camera' && fresh && sig.pts){
     dirL = sig.armDirL; dirR = sig.armDirR;
@@ -1604,7 +1677,8 @@ function updateMe(dt, now, fresh){
     // walk around: where you stand is where he stands
     const P = sig.pts, cx = (P.L.s.x + P.R.s.x)/2;
     tx = clamp((cx/vw - 0.15)/0.7, 0, 1)*W;
-    if(sig.jump){ sig.jump = false; meJump(); }
+    if(sig.jump){ sig.jump = false; meJump(); me.energy = Math.min(1, me.energy + 0.3); }
+    eTarget = clamp((sig.energy - 0.7)/4, 0, 1);
     if(sig.bounce){ sig.bounce = false; if(dipT <= 0 && Math.random() < 0.5) dipT = 0.22; }
     if(lift > 2.5 && now - lastFlapSfx > 250){ sfx.flap(); lastFlapSfx = now; }
     if($('#msg').textContent === 'I can\'t see you!') setMsg('');
@@ -1613,6 +1687,7 @@ function updateMe(dt, now, fresh){
     tx = me.x + mv*500*S*dt; lean = mv*0.8;
     const ft = (now - meKeyPuff)/1000;
     if(ft < 0.4) lift = 6;
+    eTarget = ft < 0.6 ? 0.9 : (mv ? 0.45 : 0);
     const e = keys['arrowup'] ? 1.2 : keys['arrowdown'] ? -1.2 : Math.sin(t*3)*0.7;
     dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
   } else {
@@ -1623,6 +1698,13 @@ function updateMe(dt, now, fresh){
       if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
     }
   }
+  // fills fast when you move, drains slowly when you stop
+  me.energy = lerp(me.energy, eTarget, 1-Math.exp(-(eTarget > me.energy ? 3.5 : 0.7)*dt));
+  me.beat = Math.max(0, me.beat - dt*5);
+  if(me.energy < 0.08){
+    me.stillT += dt;
+    if(me.stillT > 4 && now - lastSpeak > 5000){ say(['Flap your arms to puff me up!','Flop around!','I need air! Flap flap!'][me.tipI++ % 3]); me.stillT = 0; me.lastTip = now; }
+  } else me.stillT = 0;
   me.x = clamp(lerp(me.x, tx, 1-Math.exp(-6*dt)), W*0.12, W*0.88);
   guy.vx = (me.x - guy.x)/Math.max(dt, 0.001);
   guy.x = me.x; guy.y = H*0.88;
@@ -1631,6 +1713,55 @@ function updateMe(dt, now, fresh){
   const tips = ['Clap your hands to change me!', 'Wave your arms!', 'Jump up high!', 'Wiggle wiggle!', 'Clap again!', 'Lean over!'];
   if(now - me.lastTip > 12000 && now - lastSpeak > 6000){ say(tips[me.tipI++ % tips.length]); me.lastTip = now; }
   return { dirL, dirR, lift };
+}
+
+
+/* ---------- silly guy music: the more he moves, the more the band plays ---------- */
+const MBPM = 112, MSTEP = 60/MBPM/4;
+const CHORDS = [ // root (bass Hz) + arpeggio notes
+  { b:65.41, n:[523.3, 659.3, 784, 1046.5] },   // C
+  { b:55.00, n:[440, 523.3, 659.3, 880] },      // Am
+  { b:43.65, n:[349.2, 440, 523.3, 698.5] },    // F
+  { b:49.00, n:[392, 493.9, 587.3, 784] }       // G
+];
+const mus = { next:0, step:0, on:false };
+function startMeMusic(){ audio(); noiseBuffer(); if(ac){ mus.next = ac.currentTime + 0.1; mus.step = 0; mus.on = true; } }
+function meStep(i, at){
+  const E = me.energy, bar = Math.floor(i/16) % 4, s = i % 16, ch = CHORDS[bar];
+  const wintry = !!SKINS[skinI].snow;
+  if(E > 0.06 && s % 2 === 0){
+    if(wintry){ noiseAt(at, 0.07, 0.10 + 0.15*E, 'highpass', 6500); oscAt(at, 2637, 2630, 0.06, 'sine', 0.03 + 0.04*E); }
+    else inst.hat(at, 0.05 + 0.12*E);
+  }
+  if(E > 0.22 && s % 4 === 0) inst.kick(at, 0.5 + 0.4*E);
+  if(E > 0.35 && [0,3,6,8,11,14].includes(s)){
+    const f = ch.b * ([6,14].includes(s) ? 2 : 1);
+    oscAt(at, f, f*0.98, 0.22, 'triangle', 0.35 + 0.25*E);
+    oscAt(at, f*2, f*1.96, 0.12, 'sawtooth', 0.04);
+  }
+  if(E > 0.5 && (s === 4 || s === 12)) inst.snare(at, 0.35 + 0.25*E);
+  if(E > 0.7){
+    const f = ch.n[[0,1,2,3,2,1][s % 6] % 4];
+    oscAt(at, f, f, 0.14, 'square', 0.035 + 0.03*E);
+  }
+  if(E > 0.9 && s === 0) inst.crash(at);
+  if(s % 4 === 0) me.beat = 1;
+}
+setInterval(()=>{
+  if(!(state === 'play' && game === 'me' && mus.on && ac)) return;
+  if(mus.next < ac.currentTime - 0.2) mus.next = ac.currentTime + 0.05;
+  while(mus.next < ac.currentTime + 0.12){ meStep(mus.step, mus.next); mus.next += MSTEP; mus.step++; }
+}, 25);
+
+function drawMeMeter(t){
+  const x = 34*S, h = H*0.5, y = H*0.22, w = 34*S, E = me.energy;
+  ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, w/2); ctx.fill();
+  const g = ctx.createLinearGradient(0, y+h, 0, y);
+  g.addColorStop(0,'#3bd16a'); g.addColorStop(0.5,'#ffd23b'); g.addColorStop(1,'#ff3b4e');
+  ctx.fillStyle = g; const fh = Math.max(w, h*E);
+  ctx.beginPath(); ctx.roundRect(x, y+h-fh, w, fh, w/2); ctx.fill();
+  ctx.font = `800 ${26*S}px "Baloo 2", sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+  ctx.fillText(E > 0.85 ? 'WOW!' : 'Flap!', x + w/2, y - 12*S + Math.sin(t*8)*3*S*(1-E)); ctx.textAlign = 'left';
 }
 
 /* ---------- live refresh: reload when a new version is published ---------- */
