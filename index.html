@@ -45,12 +45,19 @@ video{display:none}
 <div id="overlay">
   <h1>Silly Guy Games</h1>
   <div class="row" id="games">
+    <button class="card" data-game="me"><span class="ic">🕺</span>Be the Silly Guy</button>
     <button class="card" data-game="fly"><span class="ic">☁️</span>Silly Guy Fly</button>
     <button class="card" data-game="bubbles"><span class="ic">🫧</span>Bubble Pop</button>
     <button class="card" data-game="band"><span class="ic">🥁</span>Wiggle Band</button>
     <button class="card" data-game="puzzle"><span class="ic">🧩</span>Puzzle</button>
   </div>
   <p id="how"></p>
+  <div class="row">
+    <span style="font-size:20px;font-weight:800">Silly guy:</span>
+    <button class="btn" id="skinPrev">◀</button>
+    <span id="skinName" style="font-size:24px;font-weight:800;min-width:200px">Classic Red</span>
+    <button class="btn" id="skinNext">▶</button>
+  </div>
   <div class="row">
     <span style="font-size:20px;font-weight:800">Where's the camera?</span>
     <div class="seg">
@@ -63,7 +70,7 @@ video{display:none}
     <button class="btn" id="startKeys">Try with keyboard</button>
   </div>
   <div id="err"></div>
-  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Keys: F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash.</p>
+  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash.</p>
 </div>
 
 <script type="module">
@@ -91,9 +98,10 @@ try { mode = localStorage.getItem('sgf-mode') || 'front'; } catch(e){}
 let showPreview = true;
 let state = 'setup';   // setup | loading | star | play
 let input = 'none';    // camera | keys
-let game = 'fly';      // fly | bubbles
-try { game = localStorage.getItem('sgf-game') || 'fly'; } catch(e){}
+let game = 'me';       // me | fly | bubbles | band | puzzle
+try { game = localStorage.getItem('sgf-game') || 'me'; } catch(e){}
 const HOW = {
+  me: 'You are the silly guy! Wave your arms, wiggle, lean, bounce and jump. Clap your hands to change him!',
   fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
   puzzle: 'Hold your hand on a piece to pick it up, then carry it to where it goes!',
@@ -200,7 +208,7 @@ let landmarker = null, lastVT = -1, vw = 640, vh = 480;
 let smooth = null, lastPoseT = 0;
 const sig = { armDirL:{x:-1,y:0}, armDirR:{x:1,y:0}, flapLift:0, armsOut:false, armsDown:false,
               lean:0, jump:false, star:false, lastFlap:0, pts:null };
-let prevWristY = null, prevTorsoY = null, prevT = 0, jumpCool = 0, prevLw = null, prevRw = null, bounceCool = 0;
+let prevWristY = null, prevTorsoY = null, prevT = 0, jumpCool = 0, prevLw = null, prevRw = null, bounceCool = 0, lastApart = 0, clapCool = 0;
 
 async function startCamera(){
   $('#err').textContent = '';
@@ -320,6 +328,12 @@ function computeSignals(now){
     sig.rv = { x:(R.w.x-prevRw.x)/sw/dt, y:(R.w.y-prevRw.y)/sw/dt };
   } else { sig.lv = {x:0,y:0}; sig.rv = {x:0,y:0}; }
   prevLw = { x:L.w.x, y:L.w.y }; prevRw = { x:R.w.x, y:R.w.y };
+  // clap: hands apart, then slam together in front of the body
+  const hd = Math.hypot(L.w.x-R.w.x, L.w.y-R.w.y)/sw;
+  if(hd > 1.1) lastApart = now;
+  if(hd < 0.55 && now - lastApart < 700 && now > clapCool && L.w.y < hip.y + 0.3*sw && R.w.y < hip.y + 0.3*sw){
+    sig.clap = true; clapCool = now + 800;
+  }
   sig.pts = { L, R, hl, hr, hipOk, nose:pt(0) };
 }
 
@@ -362,12 +376,18 @@ addEventListener('keydown', e=>{
   if(k === 'p'){ togglePreview(); return; }
   if(k === 'escape'){ openMenu(); return; }
   if(k === 'enter' && state === 'star'){ startPlay(); return; }
+  if(k === 'c' && state !== 'setup' && !keys.c){ keys.c = true; clap(); return; }
   if(state !== 'play') return;
   if(game === 'band'){
     if(k === 'a' && !keys.a) bandDrum(0);
     if(k === 'z' && !keys.z) bandDrum(1);
     if(k === ' ' && !keys[' ']){ bandBoom(); e.preventDefault(); }
     if(k === 'j' && !keys.j) bandCrash();
+    keys[k] = true; return;
+  }
+  if(game === 'me'){
+    if(k === ' ' && !keys[' ']){ meKeyPuff = performance.now(); sfx.flap(); e.preventDefault(); }
+    if(k === 'j' && !keys.j) meJump();
     keys[k] = true; return;
   }
   if(game !== 'fly') return;
@@ -428,7 +448,8 @@ function startPlay(){
   nextBalloon = performance.now() + 1200;
   resetGuy(game !== 'fly');
   sfx.ready();
-  if(game === 'fly'){ flash('Fly!', 1.2); say('Flap your arms to fly!', true); }
+  if(game === 'me'){ me.x = W/2; me.lastTip = performance.now(); say('You are the silly guy! Clap to change me!', true); }
+  else if(game === 'fly'){ flash('Fly!', 1.2); say('Flap your arms to fly!', true); }
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
   else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; say('Pop the bubbles with your hands!', true); }
@@ -449,7 +470,12 @@ function update(dt, now){
   let lift = 0, lean = 0, out = false, down = false;
   let dirL = { x:-0.6, y:0.8 }, dirR = { x:0.6, y:0.8 };
 
-  if(state === 'play' && game === 'bubbles'){
+  leanF = 0;
+  if(sig.clap){ sig.clap = false; if(state === 'play' || state === 'star') clap(); }
+  if(state === 'play' && game === 'me'){
+    const r = updateMe(dt, now, fresh);
+    dirL = r.dirL; dirR = r.dirR; lift = r.lift;
+  } else if(state === 'play' && game === 'bubbles'){
     updateBubbles(dt, now, fresh);
     dirL = bub.dirL; dirR = bub.dirR;
   } else if(state === 'play' && game === 'puzzle'){
@@ -570,7 +596,7 @@ function popBalloon(b){
   }
 }
 
-let mouth = 0;
+let mouth = 0, leanF = 0;
 function updateBody(dt, t, dirL, dirR, lift){
   const ASEG = 19*S, k = Math.min(2, dt*60);
   const SEG = grounded ? 30*S : 22*S;
@@ -578,7 +604,7 @@ function updateBody(dt, t, dirL, dirR, lift){
     // blower at the bottom pushes air up the tube; every so often the air dips and he flops over
     const b0 = chain[0];
     b0.x = guy.x; b0.y = guy.y - 46*S; b0.px = b0.x; b0.py = b0.y;
-    if(dipT > 0) dipT -= dt; else if(Math.random() < dt*0.14) dipT = rnd(0.25, 0.5);
+    if(dipT > 0) dipT -= dt; else if(Math.random() < dt*(game === 'me' && state === 'play' ? 0.05 : 0.14)) dipT = rnd(0.25, 0.5);
     let target = dipT > 0 ? -0.3 : 1.7 + Math.sin(t*1.7)*0.45 + Math.sin(t*4.3)*0.3 + lift*0.15;
     if(guy.spinT > 0) target += 2.6;
     air = lerp(air, target, 0.12);
@@ -586,7 +612,7 @@ function updateBody(dt, t, dirL, dirR, lift){
       const p = chain[i];
       const vx = (p.x-p.px)*0.9, vy = (p.y-p.py)*0.9;
       p.px = p.x; p.py = p.y;
-      p.x += vx + Math.sin(t*5.2 + i*0.55)*1.1*S*k*(i/N) + Math.sin(t*2.1)*0.4*S*k*(i/N);
+      p.x += vx + Math.sin(t*5.2 + i*0.55)*1.1*S*k*(i/N) + Math.sin(t*2.1)*0.4*S*k*(i/N) + leanF*1.8*S*k*(i/N);
       p.y += vy - air*S*k*(0.9 + 0.7*i/N) + 0.7*S*k;
       if(i < 4) p.x += (b0.x - p.x)*(0.35 - i*0.07);
     }
@@ -694,7 +720,7 @@ function tube(pts, w0, w1, col){
   }
 }
 
-const BODY = '#ff3b52', BAND = '#ffc42e', DARK = '#d61f3a';
+let BODY = '#ff3b52', BAND = '#ffc42e', DARK = '#d61f3a';
 function fringe(x, y, ang, len, n, spread, t, col, w){
   ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
   for(let i=0;i<n;i++){
@@ -732,6 +758,9 @@ function drawGuy(t){
     const c = chain[4], a = (1 - guy.spinT/0.8)*Math.PI*2;
     ctx.translate(c.x,c.y); ctx.rotate(-a); ctx.translate(-c.x,-c.y);
   }
+  const sk = SKINS[skinI];
+  BODY = sk.body; DARK = sk.dark; BAND = Array.isArray(sk.band) ? sk.band[0] : sk.band;
+  const bandAt = j => Array.isArray(sk.band) ? sk.band[Math.floor(j/3) % sk.band.length] : sk.band;
   if(grounded) drawBlower();
   // arms (tubes with fringe hands)
   for(const arm of arms){
@@ -750,7 +779,7 @@ function drawGuy(t){
   polyline(body, BW*0.84, BODY);
   for(let j=2; j<body.length-2; j+=3){
     const a = body[j], c = body[j+1];
-    ctx.strokeStyle = BAND; ctx.lineWidth = BW*0.84; ctx.lineCap = 'butt';
+    ctx.strokeStyle = bandAt(j); ctx.lineWidth = BW*0.84; ctx.lineCap = 'butt';
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(lerp(a.x,c.x,0.4), lerp(a.y,c.y,0.4)); ctx.stroke();
   }
   // head = top of the tube, face painted on it
@@ -758,9 +787,11 @@ function drawGuy(t){
   let ang = Math.atan2(h.y-n.y, h.x-n.x) + Math.PI/2;
   while(ang > Math.PI) ang -= Math.PI*2; while(ang < -Math.PI) ang += Math.PI*2;
   ctx.translate(h.x, h.y); ctx.rotate(grounded ? ang : clamp(ang, -0.9, 0.9));
-  fringe(0, -BW*0.3, -Math.PI/2, 30*S, 7, 1.5, t, BAND, 6*S);
+  if(sk.back) sk.back(BW, t);
+  if(!sk.noHair) fringe(0, -BW*0.3, -Math.PI/2, 30*S, 7, 1.5, t, sk.hair || BAND, 6*S);
   ctx.fillStyle = DARK; ctx.beginPath(); ctx.arc(0, 0, BW/2, Math.PI, 0); ctx.lineTo(BW/2, 50*S); ctx.lineTo(-BW/2, 50*S); ctx.fill();
   ctx.fillStyle = BODY; ctx.beginPath(); ctx.arc(0, 0, BW*0.42, Math.PI, 0); ctx.lineTo(BW*0.42, 50*S); ctx.lineTo(-BW*0.42, 50*S); ctx.fill();
+  if(sk.under) sk.under(BW, t);
   const lx = clamp(guy.vx/(600*S), -1, 1), ly = clamp(guy.vy/(800*S), -1, 1);
   for(const sd of [-1,1]){
     const ex = sd*11*S, ey = 8*S;
@@ -770,6 +801,7 @@ function drawGuy(t){
   }
   ctx.fillStyle = '#5a0f1c';
   ctx.beginPath(); ctx.ellipse(0, 33*S, 10*S, 6*S*mouth + 2*S, 0, 0, 7); ctx.fill();
+  if(sk.over) sk.over(BW, t);
   ctx.restore();
 }
 
@@ -811,6 +843,8 @@ function draw(now){
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+  if(SKINS[skinI].snow) drawSnow(t);
+  drawSkinLabel(now);
   if(state === 'play' && game === 'fly') drawRow();
   if(state === 'play' && game === 'bubbles') drawBubbleRow();
   if(state === 'star' && input === 'camera'){
@@ -1414,6 +1448,189 @@ function drawBand(t){
   for(const f of band.floats){ ctx.globalAlpha = clamp(f.life, 0, 1); ctx.fillStyle = f.c; ctx.fillText(f.ch, f.x, f.y); }
   ctx.textAlign = 'left'; ctx.globalAlpha = 1;
   if(band.crash > 0){ ctx.fillStyle = `rgba(255,255,255,${band.crash*0.35})`; ctx.fillRect(0,0,W,H); }
+}
+
+/* ---------- SILLY GUY TYPES (clap to change) ---------- */
+function fillPath(col, fn){ ctx.fillStyle = col; ctx.beginPath(); fn(); ctx.fill(); }
+function dot(x, y, r, col){ fillPath(col, ()=>ctx.arc(x, y, r, 0, 7)); }
+function star5(x, y, r, col){
+  fillPath(col, ()=>{ for(let i=0;i<10;i++){ const a = -Math.PI/2 + i*Math.PI/5, rr = i%2 ? r*0.45 : r; ctx.lineTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr); } ctx.closePath(); });
+}
+function heart(x, y, r, col){
+  fillPath(col, ()=>{ ctx.moveTo(x, y+r*0.9); ctx.bezierCurveTo(x-r*1.6, y-r*0.2, x-r*0.7, y-r*1.3, x, y-r*0.45); ctx.bezierCurveTo(x+r*0.7, y-r*1.3, x+r*1.6, y-r*0.2, x, y+r*0.9); });
+}
+function topHat(BW, col, bandCol, h){
+  const top = -BW*0.38;
+  fillPath(col, ()=>ctx.ellipse(0, top, BW*0.75, 8*S, 0, 0, 7));
+  fillPath(col, ()=>ctx.roundRect(-BW*0.42, top - h*S, BW*0.84, h*S, 4*S));
+  fillPath(bandCol, ()=>ctx.rect(-BW*0.42, top - 16*S, BW*0.84, 10*S));
+}
+const SKINS = [
+  { name:'Classic Red', say:'Classic red!', body:'#ff3b52', dark:'#d61f3a', band:'#ffc42e' },
+  // holidays
+  { name:'Turkey', say:'Gobble gobble! I\'m a turkey!', body:'#8a5a2b', dark:'#5e3a17', band:'#c98a4b', noHair:true,
+    back(BW, t){
+      const cols = ['#e8283f','#ff8a2b','#ffd23b','#8a5a2b','#ffd23b','#ff8a2b','#e8283f'];
+      cols.forEach((c,i)=>{ const a = -Math.PI/2 + (i-3)*0.32 + Math.sin(t*6+i)*0.04;
+        ctx.save(); ctx.rotate(a + Math.PI/2); fillPath(c, ()=>ctx.ellipse(0, -BW*1.0, 16*S, BW*0.85, 0, 0, 7)); ctx.restore(); });
+    },
+    over(BW){ fillPath('#ffb81c', ()=>{ ctx.moveTo(-7*S, 20*S); ctx.lineTo(7*S, 20*S); ctx.lineTo(0, 30*S); });
+      fillPath('#e8283f', ()=>ctx.ellipse(6*S, 32*S, 5*S, 11*S, 0, 0, 7)); } },
+  { name:'Santa', say:'Ho ho ho! I\'m Santa!', body:'#e8283f', dark:'#a5122a', band:'#ffffff', noHair:true, snow:true,
+    under(BW){ fillPath('#fff', ()=>{ ctx.ellipse(0, 40*S, BW*0.46, 24*S, 0, 0, 7); }); },
+    over(BW, t){
+      const sway = Math.sin(t*3)*6*S;
+      fillPath('#e8283f', ()=>{ ctx.moveTo(-BW*0.55, -BW*0.3); ctx.quadraticCurveTo(-BW*0.1, -BW*1.6, BW*0.75 + sway, -BW*1.05); ctx.lineTo(BW*0.55, -BW*0.3); });
+      fillPath('#fff', ()=>ctx.roundRect(-BW*0.62, -BW*0.42, BW*1.24, 16*S, 8*S));
+      dot(BW*0.75 + sway, -BW*1.05, 11*S, '#fff');
+    } },
+  { name:'Reindeer', say:'I\'m a reindeer!', body:'#9b6232', dark:'#6b3f1c', band:'#e6c39a', noHair:true, snow:true,
+    over(BW, t){
+      ctx.strokeStyle = '#5a3414'; ctx.lineWidth = 7*S; ctx.lineCap = 'round';
+      for(const sd of [-1,1]){
+        ctx.beginPath(); ctx.moveTo(sd*BW*0.25, -BW*0.4); ctx.lineTo(sd*BW*0.55, -BW*1.2);
+        ctx.moveTo(sd*BW*0.4, -BW*0.8); ctx.lineTo(sd*BW*0.85, -BW*0.95);
+        ctx.moveTo(sd*BW*0.5, -BW*1.05); ctx.lineTo(sd*BW*0.25, -BW*1.35); ctx.stroke();
+      }
+      dot(0, 21*S, 9*S, '#ff2030'); dot(-3*S, 18*S, 3*S, 'rgba(255,255,255,.7)');
+    } },
+  { name:'Elf', say:'I\'m an elf!', body:'#2fa84f', dark:'#1d7a36', band:'#e8283f', noHair:true, snow:true,
+    over(BW, t){
+      const tip = Math.sin(t*4)*8*S;
+      fillPath('#2fa84f', ()=>{ ctx.moveTo(-BW*0.55, -BW*0.3); ctx.lineTo(tip, -BW*1.9); ctx.lineTo(BW*0.55, -BW*0.3); });
+      fillPath('#e8283f', ()=>ctx.roundRect(-BW*0.6, -BW*0.42, BW*1.2, 12*S, 6*S));
+      dot(tip, -BW*1.9, 9*S, '#ffd23b');
+      for(const sd of [-1,1]) fillPath('#ffc9a0', ()=>{ ctx.moveTo(sd*BW*0.45, 0); ctx.lineTo(sd*BW*0.85, -14*S); ctx.lineTo(sd*BW*0.45, 14*S); });
+    } },
+  { name:'Snowman', say:'I\'m a snowman! Brrr!', body:'#ffffff', dark:'#b9d4ea', band:'#e8283f', noHair:true, snow:true,
+    over(BW){ topHat(BW, '#1b1b2e', '#e8283f', 42);
+      fillPath('#ff8a2b', ()=>{ ctx.moveTo(0, 17*S); ctx.lineTo(30*S, 22*S); ctx.lineTo(0, 27*S); }); } },
+  { name:'Christmas Tree', say:'I\'m a Christmas tree!', body:'#1f9a46', dark:'#13692f', band:['#e8283f','#ffd23b','#3b8bff'], noHair:true, snow:true,
+    over(BW, t){ star5(0, -BW*0.75, 24*S, '#ffd23b');
+      ['#e8283f','#3b8bff','#ffd23b','#ff6fcf'].forEach((c,i)=>dot(Math.cos(i*1.7)*BW*0.3, 46*S + (i%2)*6*S, 5*S, c)); } },
+  { name:'Pumpkin', say:'I\'m a pumpkin!', body:'#ff8a1f', dark:'#d0620a', band:'#ffb347', noHair:true,
+    over(BW){ fillPath('#5a3a14', ()=>ctx.roundRect(-6*S, -BW*0.5 - 22*S, 12*S, 26*S, 4*S));
+      fillPath('#3bab4a', ()=>ctx.ellipse(16*S, -BW*0.5 - 12*S, 16*S, 7*S, -0.4, 0, 7)); } },
+  { name:'Ghost', say:'Boo! I\'m a ghost!', body:'#f4f6ff', dark:'#c5cbe6', band:'#e3e7fb', hair:'#ffffff' },
+  { name:'Bunny', say:'I\'m a bunny!', body:'#ffffff', dark:'#e0c9d9', band:'#ffb3d1', noHair:true,
+    over(BW, t){ for(const sd of [-1,1]){ const w = Math.sin(t*5 + sd)*0.12;
+      ctx.save(); ctx.translate(sd*BW*0.22, -BW*0.35); ctx.rotate(sd*0.15 + w);
+      fillPath('#fff', ()=>ctx.ellipse(0, -36*S, 13*S, 38*S, 0, 0, 7));
+      fillPath('#ffb3d1', ()=>ctx.ellipse(0, -36*S, 7*S, 28*S, 0, 0, 7)); ctx.restore(); }
+      dot(0, 22*S, 5*S, '#ff6f9a'); } },
+  { name:'Fourth of July', say:'Happy Fourth of July!', body:'#2f5bd6', dark:'#1c3a94', band:['#e8283f','#ffffff'], noHair:true,
+    over(BW){ topHat(BW, '#ffffff', '#e8283f', 40); star5(-10*S, -BW*0.38 - 30*S, 8*S, '#2f5bd6'); star5(10*S, -BW*0.38 - 30*S, 8*S, '#2f5bd6'); } },
+  { name:'Valentine', say:'I love you!', body:'#ff6fae', dark:'#d9418a', band:'#ffffff', noHair:true,
+    over(BW, t){ heart(0, -BW*0.65 + Math.sin(t*6)*3*S, 22*S, '#e8283f'); } },
+  { name:'Leprechaun', say:'I\'m a leprechaun!', body:'#36b04a', dark:'#1f7a2e', band:'#ffd23b', noHair:true,
+    under(BW){ fillPath('#ff7a1f', ()=>ctx.ellipse(0, 44*S, BW*0.44, 18*S, 0, 0, 7)); },
+    over(BW){ topHat(BW, '#1f7a2e', '#1b1b2e', 38); fillPath('#ffd23b', ()=>ctx.rect(-7*S, -BW*0.38 - 16*S, 14*S, 10*S)); } },
+  // colors
+  { name:'Blue', say:'Blue!', body:'#3b8bff', dark:'#1f5fcc', band:'#ffd23b' },
+  { name:'Green', say:'Green!', body:'#3bd16a', dark:'#23a04b', band:'#ffffff' },
+  { name:'Purple', say:'Purple!', body:'#a35bff', dark:'#7a35d6', band:'#ffd23b' },
+  { name:'Orange', say:'Orange!', body:'#ff8a2b', dark:'#d4650f', band:'#3b8bff' },
+  { name:'Pink', say:'Pink!', body:'#ff6fcf', dark:'#d645a6', band:'#ffffff' },
+  { name:'Yellow', say:'Yellow!', body:'#ffd23b', dark:'#d9a90f', band:'#ff3b52' },
+  { name:'Rainbow', say:'Rainbow!', body:'#ffffff', dark:'#cfd6e6', band:['#ff3b4e','#ff8a2b','#ffd23b','#3bd16a','#3b8bff','#a35bff'], hair:'#ff6fcf' }
+];
+let skinI = 0;
+try { skinI = clamp(parseInt(localStorage.getItem('sgf-skin')) || 0, 0, SKINS.length-1); } catch(e){}
+let skinLabelT = -9999;
+function setSkin(i, announce){
+  skinI = (i + SKINS.length) % SKINS.length;
+  try { localStorage.setItem('sgf-skin', skinI); } catch(e){}
+  $('#skinName').textContent = SKINS[skinI].name;
+  if(announce){
+    skinLabelT = performance.now();
+    say(SKINS[skinI].say, true);
+  }
+}
+$('#skinPrev').onclick = ()=>{ audio(); setSkin(skinI-1, true); };
+$('#skinNext').onclick = ()=>{ audio(); setSkin(skinI+1, true); };
+setSkin(skinI, false);
+
+function clap(){
+  audio();
+  // clap sound + sparkle chime
+  if(ac){ noiseAt(ac.currentTime, 0.09, 0.6, 'bandpass', 1800); }
+  [880,1175,1568].forEach((f,i)=>tone(f, f*1.01, 0.18, 'triangle', 0.15, 0.05 + i*0.06));
+  setSkin(skinI+1, true);
+  const sk = SKINS[skinI], h = chain[grounded ? N-1 : 0];
+  const cols = [sk.body, Array.isArray(sk.band) ? sk.band[0] : sk.band, '#fff', '#ffd23b'];
+  for(let i=0;i<40;i++){
+    const a = Math.random()*Math.PI*2, v = rnd(150,520)*S;
+    bits.push({ x:h.x, y:h.y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 200*S, life:rnd(0.6,1.2), c:cols[i%cols.length], s:rnd(6,12)*S, rot:0, vr:rnd(-8,8) });
+  }
+  dipT = 0; air = 0.3;   // quick squish, then he puffs back up as the new guy
+}
+cv.addEventListener('pointerdown', ()=>{ if(state === 'play' && game === 'me' && input === 'keys') clap(); });
+
+function drawSkinLabel(now){
+  const age = (now - skinLabelT)/1000;
+  if(age > 2) return;
+  const a = age < 0.15 ? age/0.15 : age > 1.6 ? (2-age)/0.4 : 1;
+  const sc = 1 + Math.max(0, 0.3 - age)*1.5;
+  ctx.save(); ctx.globalAlpha = clamp(a,0,1);
+  ctx.translate(W/2, H*0.2); ctx.scale(sc, sc);
+  ctx.font = `800 ${64*S}px "Baloo 2", sans-serif`; ctx.textAlign = 'center';
+  ctx.lineWidth = 10*S; ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeText(SKINS[skinI].name + '!', 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillText(SKINS[skinI].name + '!', 0, 0);
+  ctx.restore();
+}
+const flakes = Array.from({length:70}, ()=>({ x:Math.random(), y:Math.random(), r:rnd(2,5), s:rnd(0.03,0.09), ph:rnd(0,6) }));
+function drawSnow(t){
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  for(const f of flakes){
+    const y = ((f.y + t*f.s) % 1)*H, x = (f.x*W + Math.sin(t + f.ph)*20*S);
+    ctx.beginPath(); ctx.arc(x, y, f.r*S, 0, 7); ctx.fill();
+  }
+}
+
+/* ---------- BE THE SILLY GUY ---------- */
+const me = { x:0, lastTip:0, tipI:0 };
+let meKeyPuff = -9999;
+function meJump(){
+  if(guy.spinT > 0) return;
+  guy.spinT = 0.8; sfx.loop(); say('Wheee!', true);
+}
+function updateMe(dt, now, fresh){
+  const t = now/1000;
+  let lift = 0, dirL, dirR, lean = 0, tx = me.x;
+  speed = lerp(speed, 40*S, 0.05);
+  if(input === 'camera' && fresh && sig.pts){
+    dirL = sig.armDirL; dirR = sig.armDirR;
+    lift = sig.flapLift; lean = sig.lean;
+    // walk around: where you stand is where he stands
+    const P = sig.pts, cx = (P.L.s.x + P.R.s.x)/2;
+    tx = clamp((cx/vw - 0.15)/0.7, 0, 1)*W;
+    if(sig.jump){ sig.jump = false; meJump(); }
+    if(sig.bounce){ sig.bounce = false; if(dipT <= 0 && Math.random() < 0.5) dipT = 0.22; }
+    if(lift > 2.5 && now - lastFlapSfx > 250){ sfx.flap(); lastFlapSfx = now; }
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'keys'){
+    const mv = (keys['arrowright']?1:0) - (keys['arrowleft']?1:0);
+    tx = me.x + mv*500*S*dt; lean = mv*0.8;
+    const ft = (now - meKeyPuff)/1000;
+    if(ft < 0.4) lift = 6;
+    const e = keys['arrowup'] ? 1.2 : keys['arrowdown'] ? -1.2 : Math.sin(t*3)*0.7;
+    dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
+  } else {
+    const e = Math.sin(t*3)*0.6;
+    dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
+    if(input === 'camera' && now - lastPoseT > 1500){
+      if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+      if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+    }
+  }
+  me.x = clamp(lerp(me.x, tx, 1-Math.exp(-6*dt)), W*0.12, W*0.88);
+  guy.vx = (me.x - guy.x)/Math.max(dt, 0.001);
+  guy.x = me.x; guy.y = H*0.88;
+  leanF = lean;
+  if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
+  const tips = ['Clap your hands to change me!', 'Wave your arms!', 'Jump up high!', 'Wiggle wiggle!', 'Clap again!', 'Lean over!'];
+  if(now - me.lastTip > 12000 && now - lastSpeak > 6000){ say(tips[me.tipI++ % tips.length]); me.lastTip = now; }
+  return { dirL, dirR, lift };
 }
 
 /* ---------- live refresh: reload when a new version is published ---------- */
