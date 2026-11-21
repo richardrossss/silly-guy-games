@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Silly Guy Fly</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#7ec8ff;font-family:'Baloo 2',system-ui,sans-serif;user-select:none}
+canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block}
+#preview{position:fixed;right:16px;bottom:16px;width:260px;height:195px;border-radius:14px;border:3px solid #fff;box-shadow:0 4px 20px rgba(0,0,0,.25);background:#000;z-index:6;display:none}
+#hud{position:fixed;left:14px;top:14px;display:none;gap:8px;z-index:6;opacity:.3;transition:opacity .2s}
+#hud:hover{opacity:1}
+.btn{font:inherit;font-weight:800;font-size:16px;border:0;border-radius:999px;padding:8px 16px;background:#fff;color:#223;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;background:rgba(30,80,150,.55);color:#fff;text-align:center;z-index:10;padding:20px}
+#overlay h1{font-size:clamp(48px,9vw,96px);margin:0;line-height:.95;text-shadow:0 5px 0 #e5484d}
+#overlay p{font-size:22px;margin:0;max-width:700px;line-height:1.25}
+#overlay .small{font-size:16px;opacity:.9}
+.big{font-size:28px;padding:14px 38px;background:#ffd84d}
+.row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center}
+.seg{display:flex;background:rgba(255,255,255,.25);border-radius:999px;padding:4px}
+.seg button{background:transparent;color:#fff;box-shadow:none}
+.seg button.on{background:#fff;color:#223}
+#err{color:#ffe0e0;font-weight:800}
+.card{font:inherit;font-weight:800;font-size:24px;border:4px solid transparent;border-radius:24px;padding:14px 22px;background:rgba(255,255,255,.2);color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:200px}
+.card .ic{font-size:64px;line-height:1}
+.card.on{background:#fff;color:#223;border-color:#ffd84d}
+#msg{position:fixed;left:0;right:0;top:9%;text-align:center;font-size:clamp(36px,6vw,72px);font-weight:800;color:#fff;text-shadow:0 4px 0 rgba(0,0,0,.25);pointer-events:none;z-index:4;padding:0 20px}
+video{display:none}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<video id="video" playsinline muted></video>
+<canvas id="preview" width="320" height="240"></canvas>
+<div id="msg"></div>
+
+<div id="hud">
+  <button class="btn" id="hudMode">Camera: front</button>
+  <button class="btn" id="hudPrev">Hide camera view</button>
+  <button class="btn" id="hudFull">Fullscreen</button>
+  <button class="btn" id="hudMenu">Menu</button>
+</div>
+
+<div id="overlay">
+  <h1>Silly Guy Games</h1>
+  <div class="row" id="games">
+    <button class="card" data-game="fly"><span class="ic">☁️</span>Silly Guy Fly</button>
+    <button class="card" data-game="bubbles"><span class="ic">🫧</span>Bubble Pop</button>
+    <button class="card" data-game="band"><span class="ic">🥁</span>Wiggle Band</button>
+  </div>
+  <p id="how"></p>
+  <div class="row">
+    <span style="font-size:20px;font-weight:800">Where's the camera?</span>
+    <div class="seg">
+      <button class="btn" id="segFront">In front of him</button>
+      <button class="btn" id="segBack">Behind him</button>
+    </div>
+  </div>
+  <div class="row">
+    <button class="btn big" id="startCam">Start</button>
+    <button class="btn" id="startKeys">Try with keyboard</button>
+  </div>
+  <div id="err"></div>
+  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Keys: F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash.</p>
+</div>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const cv = $('#game'), ctx = cv.getContext('2d');
+const pv = $('#preview'), pctx = pv.getContext('2d');
+const video = $('#video');
+let W, H, S, DPR;
+function resize(){
+  DPR = Math.min(2, devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  S = Math.min(H/900, W/1200) ;
+}
+addEventListener('resize', resize); resize();
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+
+/* ---------- settings ---------- */
+let mode = 'front';
+try { mode = localStorage.getItem('sgf-mode') || 'front'; } catch(e){}
+let showPreview = true;
+let state = 'setup';   // setup | loading | star | play
+let input = 'none';    // camera | keys
+let game = 'fly';      // fly | bubbles
+try { game = localStorage.getItem('sgf-game') || 'fly'; } catch(e){}
+const HOW = {
+  fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
+  bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
+  band: 'One hand bangs the drums. The other hand plays the xylophone, high or low. Bounce for a BOOM. Jump for a crash!'
+};
+function setGame(g){
+  game = g;
+  try { localStorage.setItem('sgf-game', g); } catch(e){}
+  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('on', c.dataset.game===g));
+  $('#how').textContent = HOW[g];
+}
+document.querySelectorAll('.card').forEach(c=>c.onclick = ()=>setGame(c.dataset.game));
+
+function setMode(m){
+  mode = m;
+  try { localStorage.setItem('sgf-mode', m); } catch(e){}
+  $('#segFront').classList.toggle('on', m==='front');
+  $('#segBack').classList.toggle('on', m==='back');
+  $('#hudMode').textContent = 'Camera: ' + (m==='front' ? 'front' : 'behind');
+  prevWristY = null; prevTorsoY = null; prevT = 0; prevLw = null; prevRw = null;
+}
+$('#segFront').onclick = ()=>setMode('front');
+$('#segBack').onclick = ()=>setMode('back');
+$('#hudMode').onclick = ()=>{ setMode(mode==='front'?'back':'front'); flash(mode==='front'?'Camera in front':'Camera behind', 1.2); };
+$('#hudPrev').onclick = togglePreview;
+$('#hudFull').onclick = toggleFull;
+$('#hudMenu').onclick = openMenu;
+function togglePreview(){ showPreview = !showPreview; updatePreviewVis(); }
+function updatePreviewVis(){
+  pv.style.display = (input==='camera' && showPreview && state!=='setup') ? 'block' : 'none';
+  $('#hudPrev').textContent = showPreview ? 'Hide camera view' : 'Show camera view';
+}
+function toggleFull(){
+  try{
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  }catch(e){}
+}
+function openMenu(){
+  state='setup';
+  resetGuy(true);
+  $('#overlay').style.display='flex';
+  $('#hud').style.display='none';
+  updatePreviewVis();
+  setMsg('');
+}
+
+/* ---------- sound + voice ---------- */
+let ac = null;
+function audio(){
+  try{
+    if(!ac) ac = new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended') ac.resume();
+  }catch(e){}
+}
+function tone(f1,f2,dur,type='sine',vol=0.25,delay=0){
+  if(!ac) return;
+  const t0 = ac.currentTime + delay;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f1,t0);
+  o.frequency.exponentialRampToValueAtTime(f2,t0+dur);
+  g.gain.setValueAtTime(vol,t0);
+  g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  o.connect(g).connect(ac.destination);
+  o.start(t0); o.stop(t0+dur+0.03);
+}
+const sfx = {
+  pop(){ tone(1200,180,0.14,'triangle',0.35); tone(500,90,0.1,'square',0.06); },
+  boing(){ tone(140,520,0.28,'sine',0.3); },
+  flap(){ tone(260,420,0.09,'triangle',0.07); },
+  loop(){ tone(300,1400,0.55,'sine',0.25); },
+  yay(){ [523,659,784,1047].forEach((f,i)=>tone(f,f*1.01,0.22,'triangle',0.22,i*0.11)); },
+  ready(){ tone(440,880,0.3,'triangle',0.2); }
+};
+let voice = null;
+function pickVoice(){
+  if(!('speechSynthesis' in window)) return;
+  const vs = speechSynthesis.getVoices();
+  voice = vs.find(v=>/Samantha|Google US English|Karen|Moira|Tessa/i.test(v.name) && /^en/i.test(v.lang))
+       || vs.find(v=>/^en/i.test(v.lang)) || null;
+}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = pickVoice; pickVoice(); }
+let lastSpeak = 0;
+function say(text, force=false){
+  if(!('speechSynthesis' in window)) return;
+  const now = performance.now();
+  if(!force && (speechSynthesis.speaking || now-lastSpeak < 1200)) return;
+  if(force) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  if(voice) u.voice = voice;
+  u.pitch = 1.9; u.rate = 1.0; u.volume = 1;
+  speechSynthesis.speak(u);
+  lastSpeak = now;
+}
+
+/* ---------- message ---------- */
+let msgUntil = 0;
+function setMsg(t){ $('#msg').textContent = t; msgUntil = 0; }
+function flash(t, secs){ if(game==='fly') $('#msg').style.color='#fff'; $('#msg').textContent = t; msgUntil = performance.now() + secs*1000; }
+
+/* ---------- pose tracking ---------- */
+let landmarker = null, lastVT = -1, vw = 640, vh = 480;
+let smooth = null, lastPoseT = 0;
+const sig = { armDirL:{x:-1,y:0}, armDirR:{x:1,y:0}, flapLift:0, armsOut:false, armsDown:false,
+              lean:0, jump:false, star:false, lastFlap:0, pts:null };
+let prevWristY = null, prevTorsoY = null, prevT = 0, jumpCool = 0, prevLw = null, prevRw = null, bounceCool = 0;
+
+async function startCamera(){
+  $('#err').textContent = '';
+  audio();
+  say('Hi! Let\'s fly!', true);
+  state = 'loading';
+  $('#overlay').style.display = 'none';
+  setMsg('Waking up the camera...');
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ width:{ideal:640}, height:{ideal:480} }, audio:false });
+    video.srcObject = stream;
+    await video.play();
+    vw = video.videoWidth || 640; vh = video.videoHeight || 480;
+    pv.width = 320; pv.height = Math.round(320*vh/vw);
+    pv.style.height = Math.round(260*vh/vw)+'px';
+    if(!landmarker){
+      setMsg('Getting ready...');
+      const { PoseLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+      const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+      const opts = (delegate)=>({
+        baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate },
+        runningMode:'VIDEO', numPoses:1,
+        minPoseDetectionConfidence:0.4, minPosePresenceConfidence:0.4, minTrackingConfidence:0.4
+      });
+      try { landmarker = await PoseLandmarker.createFromOptions(fileset, opts('GPU')); }
+      catch(e){ landmarker = await PoseLandmarker.createFromOptions(fileset, opts('CPU')); }
+    }
+    input = 'camera';
+    $('#hud').style.display = 'flex';
+    enterStar();
+  }catch(e){
+    console.error(e);
+    state = 'setup';
+    setMsg('');
+    $('#overlay').style.display = 'flex';
+    $('#err').textContent = 'Camera didn\'t start: ' + (e && e.message ? e.message : e) + '. Check camera permission for this site, or try the keyboard.';
+  }
+}
+$('#startCam').onclick = ()=>{
+  if(input==='camera' && landmarker){ $('#overlay').style.display='none'; $('#hud').style.display='flex'; enterStar(); return; }
+  startCamera();
+};
+$('#startKeys').onclick = ()=>{
+  audio(); input = 'keys';
+  $('#overlay').style.display = 'none';
+  $('#hud').style.display = 'flex';
+  startPlay();
+};
+
+function pt(i){
+  const s = smooth[i];
+  return { x:(mode==='front' ? 1-s.x : s.x)*vw, y:s.y*vh, v:s.v };
+}
+
+function readPose(now){
+  if(!landmarker || video.readyState < 2) return;
+  if(video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let r;
+  try { r = landmarker.detectForVideo(video, now); } catch(e){ return; }
+  const lm = r && r.landmarks && r.landmarks[0];
+  if(!lm) return;
+  if(!smooth) smooth = lm.map(p=>({x:p.x,y:p.y,v:p.visibility ?? 1}));
+  else lm.forEach((p,i)=>{ const s=smooth[i]; s.x += (p.x-s.x)*0.6; s.y += (p.y-s.y)*0.6; s.v = p.visibility ?? 1; });
+  lastPoseT = now;
+  computeSignals(now);
+}
+
+function computeSignals(now){
+  const a = { s:pt(11), e:pt(13), w:pt(15) }, b = { s:pt(12), e:pt(14), w:pt(16) };
+  // whichever shoulder is on the left of the screen is the left arm, so it works facing either way
+  const [L,R] = a.s.x < b.s.x ? [a,b] : [b,a];
+  const hl = pt(23), hr = pt(24);
+  const sw = Math.max(20, Math.hypot(R.s.x-L.s.x, R.s.y-L.s.y));
+  const sh = { x:(L.s.x+R.s.x)/2, y:(L.s.y+R.s.y)/2 };
+  const hipOk = hl.v > 0.5 && hr.v > 0.5 && hl.y < vh && hr.y < vh;
+  const hip = hipOk ? { x:(hl.x+hr.x)/2, y:(hl.y+hr.y)/2 } : { x:sh.x, y:sh.y + 1.6*sw };
+  const dt = prevT ? (now-prevT)/1000 : 0.033; prevT = now;
+
+  const dir = (p)=>{ const d = Math.hypot(p.w.x-p.s.x, p.w.y-p.s.y) || 1; return { x:(p.w.x-p.s.x)/d, y:(p.w.y-p.s.y)/d }; };
+  sig.armDirL = dir(L); sig.armDirR = dir(R);
+
+  // flapping: wrists moving down fast = lift
+  const wy = (L.w.y + R.w.y)/2;
+  if(prevWristY != null && dt > 0 && dt < 0.3){
+    const dy = (wy - prevWristY)/sw/dt;
+    sig.flapLift = dy > 1.2 ? Math.min(dy, 10) : 0;
+    if(sig.flapLift > 2.5) sig.lastFlap = now;
+  } else sig.flapLift = 0;
+  prevWristY = wy;
+
+  const outL = Math.abs(L.w.y-L.s.y) < 0.75*sw && (L.s.x-L.w.x) > 0.9*sw;
+  const outR = Math.abs(R.w.y-R.s.y) < 0.75*sw && (R.w.x-R.s.x) > 0.9*sw;
+  sig.armsOut = outL && outR;
+  sig.armsDown = !sig.armsOut && L.w.y > sh.y + 1.0*sw && R.w.y > sh.y + 1.0*sw
+               && Math.abs(L.w.x-L.s.x) < 0.7*sw && Math.abs(R.w.x-R.s.x) < 0.7*sw;
+
+  // lean: shoulders tilting or shifting over the hips
+  const tilt = (R.s.y - L.s.y)/sw;
+  const off = hipOk ? (sh.x - hip.x)/sw : 0;
+  const lean = off*1.4 + tilt*1.1;
+  sig.lean = Math.abs(lean) < 0.12 ? 0 : clamp((lean - Math.sign(lean)*0.12)*1.8, -1, 1);
+
+  // jump: whole torso pops up fast
+  if(prevTorsoY != null && dt > 0 && dt < 0.3){
+    const vy = (sh.y - prevTorsoY)/sw/dt;
+    if(vy < -3.2 && now > jumpCool && !sig.armsOut){ sig.jump = true; jumpCool = now + 1500; }
+    if(vy > 2.0 && now > bounceCool){ sig.bounce = true; bounceCool = now + 350; }
+  }
+  prevTorsoY = sh.y;
+
+  // star pose: both hands up high and wide
+  sig.star = L.w.y < L.s.y - 0.25*sw && R.w.y < R.s.y - 0.25*sw && (R.w.x - L.w.x) > 2.0*sw;
+
+  if(prevLw && dt > 0 && dt < 0.3){
+    sig.lv = { x:(L.w.x-prevLw.x)/sw/dt, y:(L.w.y-prevLw.y)/sw/dt };
+    sig.rv = { x:(R.w.x-prevRw.x)/sw/dt, y:(R.w.y-prevRw.y)/sw/dt };
+  } else { sig.lv = {x:0,y:0}; sig.rv = {x:0,y:0}; }
+  prevLw = { x:L.w.x, y:L.w.y }; prevRw = { x:R.w.x, y:R.w.y };
+  sig.pts = { L, R, hl, hr, hipOk, nose:pt(0) };
+}
+
+/* ---------- preview ---------- */
+function drawPreview(now){
+  if(pv.style.display === 'none') return;
+  const w = pv.width, h = pv.height;
+  pctx.save();
+  if(mode === 'front'){ pctx.translate(w,0); pctx.scale(-1,1); }
+  if(video.readyState >= 2) pctx.drawImage(video,0,0,w,h);
+  pctx.restore();
+  const fresh = now - lastPoseT < 600;
+  if(sig.pts && fresh){
+    const k = w/vw, P = sig.pts;
+    const line = (a,b)=>{ pctx.beginPath(); pctx.moveTo(a.x*k,a.y*k); pctx.lineTo(b.x*k,b.y*k); pctx.stroke(); };
+    pctx.lineWidth = 4; pctx.lineCap = 'round';
+    pctx.strokeStyle = '#ffd84d';
+    line(P.L.s,P.R.s);
+    if(P.hipOk){ line(P.L.s,P.hl.x<P.hr.x?P.hl:P.hr); line(P.R.s,P.hl.x<P.hr.x?P.hr:P.hl); line(P.hl,P.hr); }
+    pctx.strokeStyle = '#4dd2ff'; line(P.L.s,P.L.e); line(P.L.e,P.L.w);
+    pctx.strokeStyle = '#ff6b9a'; line(P.R.s,P.R.e); line(P.R.e,P.R.w);
+    pctx.fillStyle = '#fff';
+    [P.L.w,P.R.w].forEach(p=>{ pctx.beginPath(); pctx.arc(p.x*k,p.y*k,6,0,7); pctx.fill(); });
+  }
+  pctx.fillStyle = 'rgba(0,0,0,.55)'; pctx.fillRect(0,h-28,w,28);
+  pctx.font = '800 16px "Baloo 2", sans-serif';
+  pctx.fillStyle = fresh ? '#7dff9a' : '#ff8080';
+  pctx.fillText(fresh ? 'I see him' : 'Can\'t see him', 10, h-9);
+  pctx.fillStyle = '#fff'; pctx.textAlign = 'right';
+  pctx.fillText(mode==='front' ? 'FRONT' : 'BEHIND', w-10, h-9);
+  pctx.textAlign = 'left';
+}
+
+/* ---------- keyboard ---------- */
+const keys = {};
+let keyFlapT = -9;
+addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if(k === 'f'){ setMode(mode==='front'?'back':'front'); flash(mode==='front'?'Camera in front':'Camera behind',1.2); return; }
+  if(k === 'p'){ togglePreview(); return; }
+  if(k === 'escape'){ openMenu(); return; }
+  if(k === 'enter' && state === 'star'){ startPlay(); return; }
+  if(state !== 'play') return;
+  if(game === 'band'){
+    if(k === 'a' && !keys.a) bandDrum(0);
+    if(k === 'z' && !keys.z) bandDrum(1);
+    if(k === ' ' && !keys[' ']){ bandBoom(); e.preventDefault(); }
+    if(k === 'j' && !keys.j) bandCrash();
+    keys[k] = true; return;
+  }
+  if(game !== 'fly') return;
+  if(k === ' ' && !keys[' ']){ guy.vy -= 430*S; keyFlapT = performance.now()/1000; sfx.flap(); e.preventDefault(); }
+  if(k === 'j') doLoop();
+  keys[k] = true;
+});
+addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+
+/* ---------- world ---------- */
+const guy = { x:0, y:0, vx:0, vy:0, spinT:0 };
+let chain = [], arms = [], balloons = [], bits = [], clouds = [];
+let scrollX = 0, speed = 200, nextBalloon = 0, popped = 0, row = 0;
+let starHold = 0, lastStarSay = 0, lastTip = 0, tipI = 0, lastLostSay = 0, lastBoing = 0, lastFlapSfx = 0;
+const N = 12, AN = 7;
+const COLORS = [
+  { name:'Red', c:'#ff3b4e' }, { name:'Blue', c:'#3b8bff' }, { name:'Yellow', c:'#ffd23b' },
+  { name:'Green', c:'#3bd16a' }, { name:'Purple', c:'#a35bff' }, { name:'Orange', c:'#ff8a2b' }, { name:'Pink', c:'#ff6fcf' }
+];
+const TIPS = ['Flap your arms!', 'Arms out to glide!', 'Lean to steer!', 'Arms down to dive!', 'Jump to do a loop!', 'Pop the balloons!'];
+
+let grounded = true, air = 1.5, dipT = 0;
+function basePos(){
+  if(state === 'play' && game === 'bubbles') return { x:W*0.1, y:H*0.99 };
+  if(state === 'play' && game === 'band') return { x:W*0.47, y:H*0.88 };
+  return { x:W/2, y:H*0.88 };
+}
+function resetGuy(g = true){
+  grounded = g;
+  guy.vx = 0; guy.vy = 0; guy.spinT = 0;
+  if(g){ const b = basePos(); guy.x = b.x; guy.y = b.y; }
+  else { guy.x = W*0.4; guy.y = H*0.4; }
+  const SEG = grounded ? 30*S : 22*S;
+  chain = [];
+  for(let i=0;i<N;i++){
+    const x = grounded ? guy.x : guy.x - i*SEG*0.8, y = grounded ? guy.y - 46*S - i*SEG : guy.y + i*SEG*0.6;
+    chain.push({ x, y, px:x, py:y });
+  }
+  const r = grounded ? chain[N-3] : chain[1];
+  arms = [0,1].map(()=>{ const a=[]; for(let i=0;i<AN;i++) a.push({x:r.x,y:r.y,px:r.x,py:r.y}); return a; });
+}
+function initClouds(){
+  clouds = []; for(let i=0;i<8;i++) clouds.push({ x:rnd(0,W*1.3), y:rnd(H*0.05,H*0.5), s:rnd(0.6,1.4), d:rnd(0.15,0.45) });
+}
+resetGuy(true); initClouds();
+
+function enterStar(){
+  state = 'star'; starHold = 0;
+  resetGuy(true);
+  setMsg('Stand like a star!');
+  say('Stand like a big star!', true); lastStarSay = performance.now();
+  updatePreviewVis();
+}
+function startPlay(){
+  state = 'play';
+  balloons = []; bits = []; popped = 0; row = 0;
+  nextBalloon = performance.now() + 1200;
+  resetGuy(game !== 'fly');
+  sfx.ready();
+  if(game === 'fly'){ flash('Fly!', 1.2); say('Flap your arms to fly!', true); }
+  else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
+  else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; say('Pop the bubbles with your hands!', true); }
+  lastTip = performance.now();
+  updatePreviewVis();
+}
+function doLoop(){
+  if(guy.spinT > 0) return;
+  guy.spinT = 0.8; guy.vy -= 380*S;
+  sfx.loop(); say('Wheee!', true);
+}
+
+function update(dt, now){
+  const t = now/1000;
+  const fresh = input === 'camera' && now - lastPoseT < 600;
+  if(msgUntil && now > msgUntil){ $('#msg').textContent = ''; msgUntil = 0; }
+
+  let lift = 0, lean = 0, out = false, down = false;
+  let dirL = { x:-0.6, y:0.8 }, dirR = { x:0.6, y:0.8 };
+
+  if(state === 'play' && game === 'bubbles'){
+    updateBubbles(dt, now, fresh);
+    dirL = bub.dirL; dirR = bub.dirR;
+  } else if(state === 'play' && game === 'band'){
+    updateBand(dt, now, fresh);
+    dirL = band.dirL; dirR = band.dirR;
+  } else if(state === 'play'){
+    if(input === 'camera'){
+      if(fresh){
+        lift = sig.flapLift; lean = sig.lean; out = sig.armsOut; down = sig.armsDown;
+        dirL = sig.armDirL; dirR = sig.armDirR;
+        if(sig.jump){ sig.jump = false; doLoop(); }
+        if(lift > 2.5 && now - lastFlapSfx > 250){ sfx.flap(); lastFlapSfx = now; }
+        if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+      } else {
+        out = true;
+        if(now - lastPoseT > 1500){
+          if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+          if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+        }
+      }
+    } else if(input === 'keys'){
+      lean = (keys['arrowright']?1:0) - (keys['arrowleft']?1:0);
+      out = !!keys['arrowup']; down = !!keys['arrowdown'];
+      const ft = t - keyFlapT;
+      let e = ft < 0.3 ? lerp(1.1, -0.9, ft/0.3) : (out ? 0 : down ? -1.2 : -0.5 + Math.sin(t*3)*0.25);
+      dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
+    }
+
+    let g = 900*S;
+    if(out) g *= 0.2;
+    if(down) g *= 2.3;
+    guy.vy += g*dt;
+    guy.vy -= lift*240*S*dt;
+    if(out) guy.vy = lerp(guy.vy, 60*S, 1-Math.exp(-3*dt));
+    guy.vy = clamp(guy.vy, -750*S, 950*S);
+    guy.y += guy.vy*dt;
+    guy.vx += (lean*750*S - guy.vx)*(1-Math.exp(-5*dt));
+    guy.x = clamp(guy.x + guy.vx*dt, W*0.1, W*0.8);
+
+    const top = 60*S, ground = H*0.86, floor = ground - 200*S;
+    if(guy.y < top){ guy.y = top; guy.vy = Math.max(0, guy.vy); }
+    if(guy.y > floor){
+      guy.y = floor;
+      if(guy.vy > 250*S && now - lastBoing > 400){ sfx.boing(); lastBoing = now; }
+      guy.vy = -Math.abs(guy.vy)*0.35;
+    }
+    const target = down ? 420*S : out ? 260*S : 210*S;
+    speed = lerp(speed, target, 1-Math.exp(-2*dt));
+
+    if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
+
+    // balloons
+    if(now > nextBalloon){
+      const col = COLORS[Math.floor(Math.random()*COLORS.length)];
+      balloons.push({ x:W+60*S, y:rnd(H*0.14, H*0.66), r:rnd(34,46)*S, col, ph:rnd(0,6) });
+      nextBalloon = now + rnd(1400, 2400);
+    }
+    const hits = [chain[0], chain[3], chain[6]];
+    for(const b of balloons){
+      b.x -= speed*dt*1.1;
+      b.y += Math.sin(t*2 + b.ph)*20*S*dt;
+      for(const p of hits){
+        if(!b.dead && Math.hypot(p.x-b.x, p.y-b.y) < b.r + 34*S){
+          b.dead = true; popBalloon(b);
+        }
+      }
+    }
+    balloons = balloons.filter(b=>!b.dead && b.x > -100);
+
+    // spoken tips when things are quiet
+    if(now - lastTip > 11000 && now - lastSpeak > 6000){
+      say(TIPS[tipI++ % TIPS.length]); lastTip = now;
+    }
+  } else {
+    // hovering on menu / star screen
+    guy.x = W/2; guy.y = H*0.88;
+    speed = lerp(speed, 120*S, 0.05);
+    const e = state === 'star' ? 0.9 + Math.sin(t*4)*0.1 : Math.sin(t*3)*0.6;
+    dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
+    if(state === 'star' && input === 'camera'){
+      if(fresh && sig.star){ starHold += dt; } else starHold = Math.max(0, starHold - dt*2);
+      if(fresh && sig.pts){ dirL = sig.armDirL; dirR = sig.armDirR; }
+      if(starHold > 0.5){ say('Great star! Ready, fly!', true); startPlay(); }
+      else if(now - lastStarSay > 8000){ say(fresh ? 'Arms up high like a star!' : 'Stand where I can see you!'); lastStarSay = now; }
+    }
+  }
+
+  scrollX += speed*dt;
+  for(const c of clouds){
+    c.x -= speed*c.d*dt;
+    if(c.x < -250*S){ c.x = W + rnd(50,300)*S; c.y = rnd(H*0.05, H*0.5); }
+  }
+  for(const p of bits){ p.vy += 500*S*dt*(p.g||1); p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; p.rot += p.vr*dt; }
+  bits = bits.filter(p=>p.life > 0);
+
+  updateBody(dt, t, dirL, dirR, lift);
+}
+
+function popBalloon(b){
+  sfx.pop();
+  for(let i=0;i<16;i++){
+    const a = Math.random()*Math.PI*2, v = rnd(150,420)*S;
+    bits.push({ x:b.x, y:b.y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.5,0.9), c:b.col.c, s:rnd(5,10)*S, rot:0, vr:rnd(-8,8) });
+  }
+  popped++; row++;
+  if(row >= 10){
+    row = 0;
+    sfx.yay(); say('Ten balloons! Hooray!', true); flash('Hooray!', 2);
+    for(let i=0;i<120;i++){
+      const col = COLORS[i%COLORS.length].c;
+      bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:col, s:rnd(6,12)*S, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 });
+    }
+  } else {
+    say(b.col.name + '!');
+  }
+}
+
+let mouth = 0;
+function updateBody(dt, t, dirL, dirR, lift){
+  const ASEG = 19*S, k = Math.min(2, dt*60);
+  const SEG = grounded ? 30*S : 22*S;
+  if(grounded){
+    // blower at the bottom pushes air up the tube; every so often the air dips and he flops over
+    const b0 = chain[0];
+    b0.x = guy.x; b0.y = guy.y - 46*S; b0.px = b0.x; b0.py = b0.y;
+    if(dipT > 0) dipT -= dt; else if(Math.random() < dt*0.14) dipT = rnd(0.25, 0.5);
+    let target = dipT > 0 ? -0.3 : 1.7 + Math.sin(t*1.7)*0.45 + Math.sin(t*4.3)*0.3 + lift*0.15;
+    if(guy.spinT > 0) target += 2.6;
+    air = lerp(air, target, 0.12);
+    for(let i=1;i<N;i++){
+      const p = chain[i];
+      const vx = (p.x-p.px)*0.9, vy = (p.y-p.py)*0.9;
+      p.px = p.x; p.py = p.y;
+      p.x += vx + Math.sin(t*5.2 + i*0.55)*1.1*S*k*(i/N) + Math.sin(t*2.1)*0.4*S*k*(i/N);
+      p.y += vy - air*S*k*(0.9 + 0.7*i/N) + 0.7*S*k;
+      if(i < 4) p.x += (b0.x - p.x)*(0.35 - i*0.07);
+    }
+    for(let it=0; it<4; it++) for(let i=1;i<N;i++){
+      const a = chain[i-1], c = chain[i];
+      const dx = c.x-a.x, dy = c.y-a.y, d = Math.hypot(dx,dy) || 1, f = SEG/d;
+      c.x = a.x + dx*f; c.y = a.y + dy*f;
+      if(c.y > b0.y) c.y = b0.y;
+    }
+  } else {
+    chain[0].x = guy.x; chain[0].y = guy.y;
+    for(let i=1;i<N;i++){
+      const p = chain[i];
+      const vx = (p.x-p.px)*0.72, vy = (p.y-p.py)*0.72;
+      p.px = p.x; p.py = p.y;
+      p.x += vx - (speed/S)*0.012*S*k*(0.5 + i/N) + Math.sin(t*8 - i*0.6)*0.7*S*k;
+      p.y += vy + 1.4*S*k + Math.cos(t*6 - i*0.8)*0.5*S*k;
+    }
+    for(let it=0; it<3; it++) for(let i=1;i<N;i++){
+      const a = chain[i-1], c = chain[i];
+      const dx = c.x-a.x, dy = c.y-a.y, d = Math.hypot(dx,dy) || 1, f = SEG/d;
+      c.x = a.x + dx*f; c.y = a.y + dy*f;
+    }
+  }
+  const root = grounded ? chain[N-4] : chain[2];
+  [[arms[0],dirL,0],[arms[1],dirR,1]].forEach(([arm,dir,side])=>{
+    arm[0].x = root.x + (side ? 22 : -22)*S; arm[0].y = root.y;
+    for(let i=1;i<AN;i++){
+      const p = arm[i];
+      const vx = (p.x-p.px)*0.8, vy = (p.y-p.py)*0.8;
+      p.px = p.x; p.py = p.y;
+      const tx = arm[0].x + dir.x*ASEG*i, ty = arm[0].y + dir.y*ASEG*i;
+      p.x += vx + (tx-p.x)*0.2*k + Math.sin(t*14 + i + side*2)*0.5*S*k*i;
+      p.y += vy + (ty-p.y)*0.2*k + 0.4*S*k;
+    }
+    for(let it=0; it<3; it++) for(let i=1;i<AN;i++){
+      const a = arm[i-1], c = arm[i];
+      const dx = c.x-a.x, dy = c.y-a.y, d = Math.hypot(dx,dy) || 1, f = ASEG/d;
+      c.x = a.x + dx*f; c.y = a.y + dy*f;
+    }
+  });
+  mouth = lerp(mouth, clamp(0.45 + lift*0.12 + Math.abs(guy.vy)/(1500*S) + (grounded ? Math.max(0, air-1.5)*0.3 : 0), 0.35, 1.2), 0.2);
+}
+
+/* ---------- drawing ---------- */
+function drawBG(t){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#5bb8ff'); g.addColorStop(1,'#d4f0ff');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // sun
+  const sx = W*0.86, sy = H*0.15, sr = 55*S;
+  ctx.save(); ctx.translate(sx,sy); ctx.rotate(t*0.3);
+  ctx.fillStyle = 'rgba(255,220,80,.5)';
+  for(let i=0;i<12;i++){ ctx.rotate(Math.PI/6); ctx.beginPath(); ctx.moveTo(sr*1.1,-8*S); ctx.lineTo(sr*1.6,0); ctx.lineTo(sr*1.1,8*S); ctx.fill(); }
+  ctx.restore();
+  ctx.fillStyle = '#ffdc4d'; ctx.beginPath(); ctx.arc(sx,sy,sr,0,7); ctx.fill();
+  ctx.fillStyle = '#5a3a00';
+  ctx.beginPath(); ctx.arc(sx-18*S,sy-8*S,5*S,0,7); ctx.arc(sx+18*S,sy-8*S,5*S,0,7); ctx.fill();
+  ctx.lineWidth = 4*S; ctx.strokeStyle = '#5a3a00'; ctx.beginPath(); ctx.arc(sx,sy+6*S,18*S,0.2,Math.PI-0.2); ctx.stroke();
+  // clouds
+  ctx.fillStyle = 'rgba(255,255,255,.95)';
+  for(const c of clouds){
+    const r = 38*S*c.s;
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,r,0,7); ctx.arc(c.x+r*1.1,c.y-r*0.35,r*1.15,0,7);
+    ctx.arc(c.x+r*2.2,c.y,r*0.95,0,7); ctx.arc(c.x+r*1.1,c.y+r*0.3,r,0,7);
+    ctx.fill();
+  }
+  hills(H*0.74, 0.3, '#9ad874', 180, 34);
+  hills(H*0.80, 0.6, '#6cc04a', 130, 26);
+  const ground = H*0.86;
+  ctx.fillStyle = '#4ea83a'; ctx.fillRect(0,ground,W,H-ground);
+  ctx.fillStyle = '#5cbb45';
+  const step = 80*S, off = -(scrollX % step);
+  for(let x=off; x<W+step; x+=step){ ctx.fillRect(x, ground, step/2, H-ground); }
+}
+function hills(base, par, col, wl, amp){
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0,H);
+  for(let x=0; x<=W+20; x+=20){
+    const u = (x + scrollX*par)/(wl*S);
+    ctx.lineTo(x, base - (Math.sin(u)*0.6 + Math.sin(u*0.37+1)*0.4)*amp*S - amp*S);
+  }
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+}
+
+function drawBalloon(b, t){
+  const r = b.r;
+  ctx.strokeStyle = 'rgba(60,60,60,.6)'; ctx.lineWidth = 2*S;
+  ctx.beginPath(); ctx.moveTo(b.x, b.y+r*1.15);
+  for(let i=1;i<=6;i++) ctx.lineTo(b.x + Math.sin(t*4+i+b.ph)*5*S, b.y + r*1.15 + i*10*S);
+  ctx.stroke();
+  ctx.fillStyle = b.col.c;
+  ctx.beginPath(); ctx.ellipse(b.x, b.y, r*0.88, r*1.08, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(b.x-7*S,b.y+r*1.15); ctx.lineTo(b.x+7*S,b.y+r*1.15); ctx.lineTo(b.x,b.y+r*1.0); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.45)';
+  ctx.beginPath(); ctx.ellipse(b.x-r*0.32, b.y-r*0.4, r*0.18, r*0.3, -0.4, 0, 7); ctx.fill();
+}
+
+function tube(pts, w0, w1, col){
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for(let i=pts.length-1;i>0;i--){
+    const w = lerp(w0, w1, i/(pts.length-1));
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[i-1].x,pts[i-1].y); ctx.stroke();
+  }
+}
+
+const BODY = '#ff3b52', BAND = '#ffc42e', DARK = '#d61f3a';
+function fringe(x, y, ang, len, n, spread, t, col, w){
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
+  for(let i=0;i<n;i++){
+    const u = n === 1 ? 0 : i/(n-1) - 0.5;
+    const a = ang + u*spread + Math.sin(t*16 + i*1.7)*0.25;
+    const ox = Math.cos(ang + Math.PI/2)*u*w*n*0.55, oy = Math.sin(ang + Math.PI/2)*u*w*n*0.55;
+    ctx.beginPath(); ctx.moveTo(x+ox, y+oy); ctx.lineTo(x+ox + Math.cos(a)*len, y+oy + Math.sin(a)*len); ctx.stroke();
+  }
+}
+function polyline(pts, w, col, cap='round'){
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = cap; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+}
+function drawBlower(){
+  const x = guy.x, y = guy.y, w = 110*S, h = 46*S;
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(x, y+4*S, w*0.6, 10*S, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#3d4466';
+  ctx.beginPath(); ctx.roundRect(x-w/2, y-h, w, h, 10*S); ctx.fill();
+  ctx.fillStyle = '#2a2f4a'; ctx.beginPath(); ctx.arc(x - w*0.22, y - h/2, 15*S, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#7a84b8'; ctx.lineWidth = 3*S;
+  const spin = performance.now()/60;
+  for(let i=0;i<3;i++){ const a = spin + i*2.09; ctx.beginPath(); ctx.moveTo(x-w*0.22, y-h/2); ctx.lineTo(x-w*0.22+Math.cos(a)*13*S, y-h/2+Math.sin(a)*13*S); ctx.stroke(); }
+  ctx.fillStyle = '#7a84b8';
+  for(let i=0;i<3;i++) ctx.fillRect(x + w*0.05, y - h*0.72 + i*h*0.22, w*0.32, 4*S);
+  ctx.fillStyle = DARK; ctx.beginPath(); ctx.roundRect(x - 34*S, y - h - 8*S, 68*S, 12*S, 4*S); ctx.fill();
+}
+function drawGuy(t){
+  const BW = 56*S, AW = 24*S;
+  const hi = grounded ? N-1 : 0, ni = grounded ? N-3 : 2;
+  const body = grounded ? chain : chain.slice().reverse(); // base/tail -> head
+  ctx.save();
+  if(!grounded && guy.spinT > 0){
+    const c = chain[4], a = (1 - guy.spinT/0.8)*Math.PI*2;
+    ctx.translate(c.x,c.y); ctx.rotate(-a); ctx.translate(-c.x,-c.y);
+  }
+  if(grounded) drawBlower();
+  // arms (tubes with fringe hands)
+  for(const arm of arms){
+    polyline(arm, AW, DARK);
+    polyline(arm, AW*0.72, BODY);
+    const e = arm[AN-1], p = arm[AN-2];
+    fringe(e.x, e.y, Math.atan2(e.y-p.y, e.x-p.x), 22*S, 5, 1.1, t, BAND, 5*S);
+  }
+  // tail fringe when flying (open end of the tube)
+  if(!grounded){
+    const e = chain[N-1], p = chain[N-2];
+    fringe(e.x, e.y, Math.atan2(e.y-p.y, e.x-p.x), 28*S, 6, 1.0, t, BAND, 6*S);
+  }
+  // the tube: same width all the way up, darker edge, yellow bands
+  polyline(body, BW, DARK);
+  polyline(body, BW*0.84, BODY);
+  for(let j=2; j<body.length-2; j+=3){
+    const a = body[j], c = body[j+1];
+    ctx.strokeStyle = BAND; ctx.lineWidth = BW*0.84; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(lerp(a.x,c.x,0.4), lerp(a.y,c.y,0.4)); ctx.stroke();
+  }
+  // head = top of the tube, face painted on it
+  const h = chain[hi], n = chain[ni];
+  let ang = Math.atan2(h.y-n.y, h.x-n.x) + Math.PI/2;
+  while(ang > Math.PI) ang -= Math.PI*2; while(ang < -Math.PI) ang += Math.PI*2;
+  ctx.translate(h.x, h.y); ctx.rotate(grounded ? ang : clamp(ang, -0.9, 0.9));
+  fringe(0, -BW*0.3, -Math.PI/2, 30*S, 7, 1.5, t, BAND, 6*S);
+  ctx.fillStyle = DARK; ctx.beginPath(); ctx.arc(0, 0, BW/2, Math.PI, 0); ctx.lineTo(BW/2, 50*S); ctx.lineTo(-BW/2, 50*S); ctx.fill();
+  ctx.fillStyle = BODY; ctx.beginPath(); ctx.arc(0, 0, BW*0.42, Math.PI, 0); ctx.lineTo(BW*0.42, 50*S); ctx.lineTo(-BW*0.42, 50*S); ctx.fill();
+  const lx = clamp(guy.vx/(600*S), -1, 1), ly = clamp(guy.vy/(800*S), -1, 1);
+  for(const sd of [-1,1]){
+    const ex = sd*11*S, ey = 8*S;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, ey, 9*S, 12*S, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#1b1b2e';
+    ctx.beginPath(); ctx.arc(ex + lx*3*S + Math.sin(t*20+sd)*1.5*S, ey + 2*S + ly*3*S + Math.cos(t*17+sd)*1.5*S, 5*S, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = '#5a0f1c';
+  ctx.beginPath(); ctx.ellipse(0, 33*S, 10*S, 6*S*mouth + 2*S, 0, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function drawRow(){
+  const n = row, r = 12*S;
+  for(let i=0;i<10;i++){
+    const x = W - 30*S - i*30*S, y = 32*S;
+    ctx.fillStyle = i < n ? COLORS[i%COLORS.length].c : 'rgba(255,255,255,.35)';
+    ctx.beginPath(); ctx.ellipse(x, y, r*0.85, r*1.05, 0, 0, 7); ctx.fill();
+  }
+}
+
+function draw(now){
+  const t = now/1000;
+  if(game === 'band' && state === 'play'){
+    drawBandBG(t);
+    drawGuy(t);
+    drawBand(t);
+    drawHands(t);
+  } else if(game === 'bubbles' && state === 'play'){
+    drawBubbleBG(t);
+    drawGuy(t);
+    drawBubbles(t);
+    drawHands(t);
+  } else {
+    drawBG(t);
+    for(const b of balloons) drawBalloon(b, t);
+    drawGuy(t);
+  }
+  for(const p of bits){
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+    ctx.globalAlpha = clamp(p.life*2, 0, 1);
+    ctx.fillStyle = p.c; ctx.fillRect(-p.s/2,-p.s/2,p.s,p.s*0.6);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+  if(state === 'play' && game === 'fly') drawRow();
+  if(state === 'play' && game === 'bubbles') drawBubbleRow();
+  if(state === 'star' && input === 'camera'){
+    // hold meter
+    const w = 220*S, x = W/2 - w/2, y = H*0.62;
+    ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.fillRect(x,y,w,16*S);
+    ctx.fillStyle = '#ffd84d'; ctx.fillRect(x,y,w*clamp(starHold/0.5,0,1),16*S);
+    ctx.font = `800 ${18*S}px "Baloo 2", sans-serif`; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+    ctx.fillText('Grown-ups: press Enter to skip', W/2, y + 46*S); ctx.textAlign = 'left';
+  }
+}
+
+/* ---------- BUBBLE POP ---------- */
+const bub = { list:[], target:null, nextTarget:0, nextSpawn:0, hands:[], got:0, dirL:{x:-0.6,y:-0.8}, dirR:{x:0.6,y:-0.8}, lastWrong:0 };
+let mouse = { x:-999, y:-999 };
+addEventListener('pointermove', e=>{ mouse.x = e.clientX; mouse.y = e.clientY; });
+function toScreen(p){
+  // map the middle of the camera frame to the whole screen so he can reach every corner
+  return { x: clamp((p.x/vw - 0.12)/0.76, 0, 1)*W, y: clamp((p.y/vh - 0.05)/0.7, 0, 1)*H };
+}
+function updateBubbles(dt, now, fresh){
+  const t = now/1000;
+  // hands
+  bub.hands = [];
+  if(input === 'camera' && fresh && sig.pts){
+    bub.hands.push({ ...toScreen(sig.pts.L.w), c:'#4dd2ff', side:-1 });
+    bub.hands.push({ ...toScreen(sig.pts.R.w), c:'#ff6b9a', side:1 });
+    bub.dirL = sig.armDirL; bub.dirR = sig.armDirR;
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'keys'){
+    bub.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1 });
+    const e = Math.sin(t*6)*0.6 + 0.6;
+    bub.dirL = { x:-Math.cos(e), y:-Math.sin(e) }; bub.dirR = { x:Math.cos(e), y:-Math.sin(e) };
+  } else if(input === 'camera' && now - lastPoseT > 1500){
+    if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+    if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+  }
+  // the silly guy hangs out on the side, copying his arms
+  { const b = basePos(); guy.x = b.x; guy.y = b.y; }
+  speed = lerp(speed, 90*S, 0.05);
+  if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
+
+  // spawn
+  if(now > bub.nextSpawn && bub.list.length < 11){
+    const col = COLORS[Math.floor(Math.random()*COLORS.length)];
+    const r = rnd(45, 70)*S;
+    bub.list.push({ x:rnd(W*0.2, W*0.92), y:H + r, r, col, vy:rnd(55, 95)*S, ph:rnd(0,6), born:now });
+    bub.nextSpawn = now + rnd(650, 1100);
+  }
+  // make sure the target color is always on screen
+  if(bub.target && !bub.list.some(b=>b.col===bub.target) && now > bub.nextSpawn - 400){
+    const r = rnd(55,70)*S;
+    bub.list.push({ x:rnd(W*0.25, W*0.9), y:H + r, r, col:bub.target, vy:rnd(55,80)*S, ph:rnd(0,6), born:now });
+  }
+  // pick a color to call out
+  if(!bub.target && now > bub.nextTarget){
+    const onScreen = bub.list.filter(b=>b.y < H*0.9 && b.y > H*0.2);
+    const pick = onScreen.length ? onScreen[Math.floor(Math.random()*onScreen.length)].col : COLORS[Math.floor(Math.random()*COLORS.length)];
+    bub.target = pick;
+    say('Pop the ' + pick.name.toLowerCase() + ' one!', true);
+    flash(pick.name + '!', 2);
+    $('#msg').style.color = pick.c;
+  }
+  if(bub.target && now - lastSpeak > 7000){ say('Find the ' + bub.target.name.toLowerCase() + ' bubble!'); }
+
+  // move + hit
+  for(const b of bub.list){
+    b.y -= b.vy*dt;
+    b.x += Math.sin(t*1.5 + b.ph)*25*S*dt;
+    for(const h of bub.hands){
+      if(!b.dead && Math.hypot(h.x-b.x, h.y-b.y) < b.r + 42*S) { b.dead = true; popBubble(b, now); }
+    }
+  }
+  bub.list = bub.list.filter(b=>!b.dead && b.y > -b.r*2);
+  for(const p of bits){ /* bits move in main update */ }
+}
+function popBubble(b, now){
+  sfx.pop();
+  for(let i=0;i<14;i++){
+    const a = Math.random()*Math.PI*2, v = rnd(120,360)*S;
+    bits.push({ x:b.x + Math.cos(a)*b.r*0.8, y:b.y + Math.sin(a)*b.r*0.8, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.4,0.8), c:b.col.c, s:rnd(5,9)*S, rot:0, vr:rnd(-8,8), g:0.3 });
+  }
+  if(bub.target && b.col === bub.target){
+    bub.got++;
+    guy.spinT = 0.8; sfx.loop();
+    if(bub.got % 10 === 0){
+      sfx.yay(); say('Ten! You did it! Hooray!', true); flash('Hooray!', 2.5); $('#msg').style.color = '#fff';
+      for(let i=0;i<120;i++){
+        const col = COLORS[i%COLORS.length].c;
+        bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:col, s:rnd(6,12)*S, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 });
+      }
+    } else {
+      const cheers = ['Yes! ', 'You got it! ', 'Great job! ', 'Wow! '];
+      say(cheers[Math.floor(Math.random()*cheers.length)] + b.col.name + '!', true);
+      flash('Yay!', 1); $('#msg').style.color = '#fff';
+    }
+    bub.target = null; bub.nextTarget = now + 2200;
+  }
+}
+function drawBubbleBG(t){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#b7a6ff'); g.addColorStop(1,'#ffd1ec');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(255,255,255,.18)';
+  for(let i=0;i<14;i++){
+    const x = (i*197 % 1000)/1000*W, y = ((i*331 + t*20*(1+i%3)) % (H+200)) ;
+    ctx.beginPath(); ctx.arc(x, H - y + 100, (8 + i%4*5)*S, 0, 7); ctx.fill();
+  }
+}
+function drawBubbles(t){
+  const tgt = bub.target;
+  for(const b of bub.list){
+    const pulse = (tgt && b.col === tgt) ? 1 + Math.sin(t*8)*0.06 : 1;
+    const r = b.r*pulse;
+    ctx.fillStyle = b.col.c + '55';
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fill();
+    ctx.lineWidth = (tgt && b.col === tgt ? 7 : 4)*S; ctx.strokeStyle = b.col.c;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    ctx.beginPath(); ctx.ellipse(b.x - r*0.35, b.y - r*0.38, r*0.22, r*0.13, -0.6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x + r*0.38, b.y + r*0.3, r*0.07, 0, 7); ctx.fill();
+  }
+}
+function drawHands(t){
+  for(const h of (game === 'band' ? band.hands : bub.hands)){
+    if(h.x < -100) continue;
+    ctx.save(); ctx.translate(h.x, h.y);
+    ctx.fillStyle = h.c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S;
+    for(let i=0;i<4;i++){
+      const a = -Math.PI/2 + (i-1.5)*0.38;
+      ctx.beginPath(); ctx.ellipse(Math.cos(a)*34*S, Math.sin(a)*34*S, 9*S, 17*S, a+Math.PI/2, 0, 7); ctx.fill(); ctx.stroke();
+    }
+    const ta = -Math.PI/2 + h.side*1.4;
+    ctx.beginPath(); ctx.ellipse(Math.cos(ta)*30*S, Math.sin(ta)*30*S, 9*S, 15*S, ta+Math.PI/2, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 30*S, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawBubbleRow(){
+  const n = bub.got % 10, r = 13*S;
+  for(let i=0;i<10;i++){
+    const x = W - 30*S - i*32*S, y = 32*S;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+    ctx.fillStyle = i < n ? COLORS[i%COLORS.length].c : 'rgba(255,255,255,.35)'; ctx.fill();
+  }
+}
+
+/* ---------- WIGGLE BAND ---------- */
+const BPM = 100, STEP = 60/BPM/4;
+const SCALE = [1046.5, 880, 784, 659.3, 587.3, 523.3]; // high to low, C major pentatonic
+const BAR_COLS = ['#ff3b4e','#ff8a2b','#ffd23b','#3bd16a','#3b8bff','#a35bff'];
+const band = { start:0, nextStepTime:0, step:0, notes:0, lastXylo:0, lastDrum:[0,0], hands:[], dirL:{x:-0.7,y:-0.7}, dirR:{x:0.7,y:-0.7},
+  litBars:[0,0,0,0,0,0], litDrum:[0,0], boom:0, crash:0, floats:[], rings:[], curBar:-1, lastMouse:{x:0,y:0}, lastTipT:0, tipI:0 };
+let noiseBuf = null;
+function noiseBuffer(){
+  if(noiseBuf || !ac) return noiseBuf;
+  noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  return noiseBuf;
+}
+function oscAt(at, f1, f2, dur, type, vol){
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f1, at); o.frequency.exponentialRampToValueAtTime(f2, at+dur);
+  g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(vol, at+0.005); g.gain.exponentialRampToValueAtTime(0.0001, at+dur);
+  o.connect(g).connect(ac.destination); o.start(at); o.stop(at+dur+0.05);
+}
+function noiseAt(at, dur, vol, ftype, freq){
+  const src = ac.createBufferSource(); src.buffer = noiseBuffer();
+  const f = ac.createBiquadFilter(); f.type = ftype; f.frequency.value = freq;
+  const g = ac.createGain(); g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at+dur);
+  src.connect(f).connect(g).connect(ac.destination); src.start(at); src.stop(at+dur+0.05);
+}
+const inst = {
+  kick:(at,v)=>oscAt(at,150,40,0.3,'sine',v),
+  snare:(at,v)=>{ noiseAt(at,0.14,v,'highpass',1500); oscAt(at,220,160,0.08,'triangle',v*0.5); },
+  hat:(at,v)=>noiseAt(at,0.04,v,'highpass',7000),
+  tom:(at,f)=>{ oscAt(at,f,f*0.55,0.35,'sine',0.7); noiseAt(at,0.04,0.25,'bandpass',f*4); },
+  xylo:(at,f)=>{ oscAt(at,f,f*0.999,0.7,'sine',0.35); oscAt(at,f*4,f*4,0.12,'sine',0.08); oscAt(at,f*2,f*2,0.3,'triangle',0.06); },
+  boom:(at)=>{ oscAt(at,90,32,0.7,'sine',0.9); noiseAt(at,0.25,0.3,'lowpass',300); },
+  crash:(at)=>{ noiseAt(at,1.4,0.35,'highpass',4500); noiseAt(at,0.6,0.2,'bandpass',8000); }
+};
+function startBand(){
+  audio(); noiseBuffer();
+  band.start = ac ? ac.currentTime + 0.15 : 0;
+  band.nextStepTime = band.start; band.step = 0; band.notes = 0;
+  band.floats = []; band.rings = []; band.lastTipT = performance.now();
+}
+function nextStepTime(){
+  const n = Math.ceil((ac.currentTime - band.start)/STEP + 0.02);
+  return band.start + n*STEP;
+}
+setInterval(()=>{
+  if(!(state === 'play' && game === 'band' && ac)) return;
+  while(band.nextStepTime < ac.currentTime + 0.12){
+    const st = band.step % 16, at = band.nextStepTime;
+    if(st === 0 || st === 8 || st === 11) inst.kick(at, 0.45);
+    if(st === 4 || st === 12) inst.snare(at, 0.18);
+    if(st % 2 === 0) inst.hat(at, st % 4 === 2 ? 0.07 : 0.04);
+    band.nextStepTime += STEP; band.step++;
+  }
+}, 25);
+function beatPhase(){ return ac ? (((ac.currentTime - band.start)/(STEP*4)) % 1 + 1) % 1 : 0; }
+
+function noteFx(x, y, col){
+  band.floats.push({ x, y, vy:-rnd(90,150)*S, vx:rnd(-30,30)*S, life:1.2, c:col, ch: Math.random() < 0.5 ? '♪' : '♫' });
+  band.rings.push({ x, y, r:20*S, life:0.5, c:col });
+  band.notes++;
+  if(band.notes % 40 === 0){
+    sfx.yay(); say('You\'re a rock star!', true); flash('Rock star!', 2);
+    for(let i=0;i<120;i++){
+      const col2 = COLORS[i%COLORS.length].c;
+      bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:col2, s:rnd(6,12)*S, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 });
+    }
+  }
+}
+function drumPos(i){ return { x:W*0.15, y: i === 0 ? H*0.36 : H*0.68, r:(i === 0 ? 70 : 88)*S }; }
+function barRect(i){
+  const top = H*0.14, bottom = H*0.9, gap = 10*S, h = (bottom-top)/SCALE.length - gap;
+  const w = lerp(W*0.26, W*0.16, i/(SCALE.length-1));
+  return { x:W*0.97 - w, y: top + i*(h+gap), w, h };
+}
+function bandDrum(i){
+  if(!ac) return;
+  const at = nextStepTime();
+  inst.tom(at, i === 0 ? 220 : 120);
+  band.litDrum[i] = 1;
+  const d = drumPos(i); noteFx(d.x, d.y - d.r, i === 0 ? '#ffd23b' : '#ff8a2b');
+}
+function bandXylo(i){
+  if(!ac) return;
+  const at = nextStepTime();
+  if(at - band.lastXylo < STEP*2 - 0.001) return;
+  band.lastXylo = at;
+  inst.xylo(at, SCALE[i]);
+  band.litBars[i] = 1;
+  const r = barRect(i); noteFx(r.x, r.y + r.h/2, BAR_COLS[i]);
+}
+function bandBoom(){ if(!ac) return; inst.boom(nextStepTime()); band.boom = 1; noteFx(W*0.47, H*0.85, '#fff'); }
+function bandCrash(){ if(!ac) return; inst.crash(nextStepTime()); band.crash = 1; guy.spinT = 0.8; noteFx(W*0.47, H*0.3, '#ffd23b'); }
+function barFromY(y){
+  for(let i=0;i<SCALE.length;i++){ const r = barRect(i); if(y < r.y + r.h + 5*S) return i; }
+  return SCALE.length - 1;
+}
+
+function updateBand(dt, now, fresh){
+  const t = now/1000;
+  band.hands = [];
+  { const b = basePos(); guy.x = b.x; guy.y = b.y; }
+  speed = lerp(speed, 60*S, 0.05);
+  if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
+  const ph = beatPhase();
+  // silly guy dances to the beat when nobody is moving
+  const e = Math.sin(ph*Math.PI*2)*0.7 + 0.3;
+  band.dirL = { x:-Math.cos(e), y:-Math.sin(e) }; band.dirR = { x:Math.cos(-e+0.6), y:-Math.sin(-e+0.6) };
+
+  if(input === 'camera' && fresh && sig.pts){
+    const hl = toScreen(sig.pts.L.w), hr = toScreen(sig.pts.R.w);
+    band.hands.push({ ...hl, c:'#4dd2ff', side:-1 }, { ...hr, c:'#ff6b9a', side:1 });
+    band.dirL = sig.armDirL; band.dirR = sig.armDirR;
+    // left hand: drums, on a quick downward swing
+    const lv = sig.lv, ls = Math.hypot(lv.x, lv.y);
+    if(ls > 3 && lv.y > 1.2 && now - band.lastDrum[0] > 170){
+      bandDrum(hl.y < H*0.52 ? 0 : 1); band.lastDrum[0] = now;
+    }
+    // right hand: xylophone, note picked by how high the hand is
+    const rv = sig.rv, rs = Math.hypot(rv.x, rv.y);
+    const bar = barFromY(hr.y);
+    if(rs > 1.6 || (bar !== band.curBar && rs > 0.8)) bandXylo(bar);
+    band.curBar = bar;
+    if(sig.bounce){ sig.bounce = false; bandBoom(); }
+    if(sig.jump){ sig.jump = false; bandCrash(); }
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'keys'){
+    band.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1 });
+    const mv = Math.hypot(mouse.x - band.lastMouse.x, mouse.y - band.lastMouse.y)/Math.max(dt,0.001);
+    band.lastMouse = { x:mouse.x, y:mouse.y };
+    if(mouse.x > W*0.6 && mv > 250*S) bandXylo(barFromY(mouse.y));
+  } else if(input === 'camera' && now - lastPoseT > 1500){
+    if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+    if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+  }
+
+  for(let i=0;i<band.litBars.length;i++) band.litBars[i] = Math.max(0, band.litBars[i] - dt*3);
+  band.litDrum = band.litDrum.map(v=>Math.max(0, v - dt*4));
+  band.boom = Math.max(0, band.boom - dt*3); band.crash = Math.max(0, band.crash - dt*2);
+  for(const f of band.floats){ f.y += f.vy*dt; f.x += f.vx*dt; f.life -= dt; }
+  band.floats = band.floats.filter(f=>f.life > 0);
+  for(const r of band.rings){ r.r += 260*S*dt; r.life -= dt; }
+  band.rings = band.rings.filter(r=>r.life > 0);
+
+  const tips = ['Bang the drums!', 'Wiggle your other hand up high!', 'Now down low!', 'Bounce to make it boom!', 'Jump for a big crash!'];
+  if(now - band.lastTipT > 13000 && now - lastSpeak > 7000){ say(tips[band.tipI++ % tips.length]); band.lastTipT = now; }
+}
+
+function drawBandBG(t){
+  const shake = band.boom*6*S;
+  ctx.save(); ctx.translate(rnd(-shake,shake), rnd(-shake,shake));
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#241a4a'); g.addColorStop(1,'#5a2a7a');
+  ctx.fillStyle = g; ctx.fillRect(-20,-20,W+40,H+40);
+  const ph = beatPhase();
+  const beams = ['#ff3b4e','#3b8bff','#ffd23b','#3bd16a'];
+  ctx.globalCompositeOperation = 'lighter';
+  beams.forEach((c,i)=>{
+    const x = W*(0.15 + i*0.23), a = Math.sin(t*0.8 + i*1.7)*0.45;
+    ctx.save(); ctx.translate(x, -10); ctx.rotate(a);
+    ctx.fillStyle = c + (Math.floor(ph*4) === i ? '40' : '22');
+    ctx.beginPath(); ctx.moveTo(-14*S,0); ctx.lineTo(14*S,0); ctx.lineTo(140*S,H*1.1); ctx.lineTo(-140*S,H*1.1); ctx.fill();
+    ctx.restore();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+  const floorY = H*0.88;
+  ctx.fillStyle = '#2b1640'; ctx.fillRect(-20, floorY, W+40, H-floorY+20);
+  ctx.fillStyle = '#ffd23b22';
+  ctx.beginPath(); ctx.ellipse(W*0.47, floorY + 6*S, 180*S*(1 + band.boom*0.4), 22*S, 0, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawBand(t){
+  // drums
+  for(let i=0;i<2;i++){
+    const d = drumPos(i), lit = band.litDrum[i], r = d.r*(1 + lit*0.12);
+    ctx.fillStyle = i === 0 ? '#c0392b' : '#d35400';
+    ctx.fillRect(d.x - r, d.y, r*2, r*0.9);
+    ctx.beginPath(); ctx.ellipse(d.x, d.y + r*0.9, r, r*0.32, 0, 0, Math.PI); ctx.fill();
+    ctx.strokeStyle = '#ffd23b'; ctx.lineWidth = 4*S;
+    for(let k=0;k<5;k++){ const x = d.x - r + (k+0.5)*r*0.4; ctx.beginPath(); ctx.moveTo(x, d.y); ctx.lineTo(x + r*0.2, d.y + r*0.9); ctx.stroke(); }
+    ctx.fillStyle = lit > 0 ? `rgb(255,${255 - lit*40},${200 - lit*150})` : '#f4ead2';
+    ctx.beginPath(); ctx.ellipse(d.x, d.y, r, r*0.32, 0, 0, 7); ctx.fill();
+    ctx.lineWidth = 6*S; ctx.strokeStyle = '#999'; ctx.stroke();
+  }
+  // xylophone bars
+  for(let i=0;i<SCALE.length;i++){
+    const b = barRect(i), lit = band.litBars[i], grow = lit*10*S;
+    const hot = band.hands.some(h=>h.x > W*0.55 && barFromY(h.y) === i);
+    ctx.fillStyle = BAR_COLS[i];
+    ctx.globalAlpha = 0.75 + lit*0.25;
+    ctx.beginPath(); ctx.roundRect(b.x - grow, b.y - grow/2, b.w + grow*2, b.h + grow, 12*S); ctx.fill();
+    ctx.globalAlpha = 1;
+    if(hot){ ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S; ctx.stroke(); }
+    ctx.fillStyle = '#ccc';
+    ctx.beginPath(); ctx.arc(b.x + 16*S, b.y + b.h/2, 5*S, 0, 7); ctx.arc(b.x + b.w - 16*S, b.y + b.h/2, 5*S, 0, 7); ctx.fill();
+  }
+  for(const r of band.rings){
+    ctx.globalAlpha = clamp(r.life*2, 0, 1); ctx.strokeStyle = r.c; ctx.lineWidth = 5*S;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 7); ctx.stroke();
+  }
+  ctx.font = `800 ${44*S}px "Baloo 2", sans-serif`; ctx.textAlign = 'center';
+  for(const f of band.floats){ ctx.globalAlpha = clamp(f.life, 0, 1); ctx.fillStyle = f.c; ctx.fillText(f.ch, f.x, f.y); }
+  ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+  if(band.crash > 0){ ctx.fillStyle = `rgba(255,255,255,${band.crash*0.35})`; ctx.fillRect(0,0,W,H); }
+}
+
+/* ---------- live refresh: reload when a new version is published ---------- */
+let myVersion = null, pendingReload = false;
+async function checkVersion(){
+  try{
+    const r = await fetch('version.json?ts=' + Date.now(), { cache:'no-store' });
+    if(!r.ok) return;
+    const v = (await r.json()).v;
+    if(myVersion === null) myVersion = v;
+    else if(v !== myVersion) pendingReload = true;
+  }catch(e){}
+}
+if(location.protocol.startsWith('http')){ checkVersion(); setInterval(checkVersion, 20000); }
+setInterval(()=>{
+  if(pendingReload && state !== 'play' && state !== 'loading'){ location.reload(); }
+  if(pendingReload && !$('#hudUpd')){ const b=document.createElement('button'); b.className='btn'; b.id='hudUpd'; b.textContent='New version, tap to load'; b.style.background='#ffd84d'; b.onclick=()=>location.reload(); $('#hud').appendChild(b); }
+}, 2000);
+
+/* ---------- loop ---------- */
+setMode(mode);
+setGame(game);
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  if(input === 'camera') readPose(now);
+  update(dt, now);
+  draw(now);
+  drawPreview(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
