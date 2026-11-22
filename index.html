@@ -1840,10 +1840,29 @@ setInterval(()=>{
 const MSEG = 200, ROADW = 1100, CAMH = 900, MRAD = 165, BRAD = 110, LAT = 0.85, DRAWN = 150;
 const CAMD = 1/Math.tan(50*Math.PI/180);
 const MTHEMES = [
-  { name:'Candy Land', sky:['#ff8fcf','#ffe6b0'], hill:'#ffb8e0', ground:['#a6f2cf','#8fe8bf'], road:['#fff7fc','#ffe4f3'], stripe:['#ff4fa3','#ffd23b','#3bd16a','#3b8bff','#a35bff'], rail:'#ff4fa3', top:'#ffd1ea' },
-  { name:'Space', sky:['#07071f','#2c1460'], hill:null, ground:null, road:['#5866ff','#4955e6'], stripe:['#7df9ff','#ff6fcf'], rail:'#7df9ff', top:'#d9fdff' },
-  { name:'Jungle', sky:['#6fd0ff','#dcffd6'], hill:'#2f8a3a', ground:['#45b24f','#3ba446'], road:['#f4cc72','#eabd5a'], stripe:['#ff8a2b','#ffffff'], rail:'#8a5a2b', top:'#c4935c' }
+  { name:'Sky', sky:['#3d8fe0','#bfe4ff','#eaf6ff'], tile:['#eef3fb','#d3dff1'], edge:['#3b8bff','#2a6fd6'], rail:'#ffd23b', top:'#fff1a8', side:'#8aa3c7', cloud:'#ffffff' },
+  { name:'Meadow', sky:['#2bb3a3','#c6ffe8','#effff8'], tile:['#f3ffe6','#d9f3c3'], edge:['#3bd16a','#24a650'], rail:'#ff8a2b', top:'#ffd0a1', side:'#86b68f', cloud:'#ffffff' },
+  { name:'Candy', sky:['#ff8fcf','#ffe6b0','#fff4dc'], tile:['#fff7fc','#ffdcef'], edge:['#ff4fa3','#ffd23b','#3bd16a','#3b8bff','#a35bff'], rail:'#ff4fa3', top:'#ffd1ea', side:'#e39ac4', cloud:'#ffffff' },
+  { name:'Sunset', sky:['#ff7a59','#ffd1a1','#ffe9d1'], tile:['#fff4e0','#ffdcb0'], edge:['#ff5d8f','#e0457a'], rail:'#7a4cff', top:'#c3aaff', side:'#c98a6b', cloud:'#fff3e8' },
+  { name:'Space', sky:['#05051a','#251055','#05051a'], tile:['#4f5cff','#3d49dc'], edge:['#7df9ff','#ff6fcf'], rail:'#7df9ff', top:'#d9fdff', side:'#262b80', stars:true }
 ];
+// Marble Blast style: easy levels that each show one new thing, then mix them, then go wild
+const MR_LEVELS = [
+  { name:'Learn to Roll',    tier:'Beginner',     theme:0, w:1.2,  p:['curve','scurve','curve','bumps','curve','scurve'] },
+  { name:'Up and Over',      tier:'Beginner',     theme:1, w:1.15, p:['camel','curve','spiralUp','scurve','drop','camel','curve'] },
+  { name:'Wiggle Road',      tier:'Beginner',     theme:2, w:1.1,  p:['wiggle','scurve','wiggle','curve','bumps','wiggle','scurve'] },
+  { name:'Jump Practice',    tier:'Beginner',     theme:3, w:1.1,  p:['ramp','curve','ramp','scurve','ramp','camel','ramp'] },
+  { name:'Super Speed',      tier:'Beginner',     theme:0, w:1.05, pads:true, p:['drop','scurve','drop','spiral','curve','drop','wiggle'] },
+  { name:'Sky Gaps',         tier:'Intermediate', theme:1, w:1.0,  p:['curve','gap','scurve','gap','camel','gap','wiggle','gap'] },
+  { name:'Skinny Bridges',   tier:'Intermediate', theme:3, w:1.0,  p:['narrow','scurve','narrow','gap','wiggle','narrow','hairpin','spiralUp'] },
+  { name:'Spiral Up',        tier:'Intermediate', theme:4, w:0.95, p:['spiralUp','hairpin','spiralUp','wiggle','gap','spiralUp','drop'] },
+  { name:'Twisty Tower',     tier:'Advanced',     theme:2, w:0.9,  p:['hairpin','wiggle','spiral','gap','narrow','hairpin','spiralUp','bumps','spiral'] },
+  { name:'Wacky Wild Ride',  tier:'Advanced',     theme:4, w:0.85, p:null }
+];
+function mrLevel(n){
+  if(n < MR_LEVELS.length) return MR_LEVELS[n];
+  return { name:'Wacky Wild Ride ' + (n - MR_LEVELS.length + 2), tier:'Advanced', theme:n % MTHEMES.length, w:0.85, p:null };
+}
 const RIVALS = [ { name:'blue', c:'#3b8bff' }, { name:'green', c:'#3bd16a' }, { name:'purple', c:'#a35bff' } ];
 const MR_TIPS = ['Tip your arms like an airplane to steer!', 'Flap your arms to go fast!', 'Roll through the bubbles!', 'Jump to hop!', 'Green arrows make you zoom!'];
 const mr = { level:0, segs:[], bubbles:[], pads:[], warn:[], finishIdx:0, finishZ:0,
@@ -1853,20 +1872,20 @@ const mr = { level:0, segs:[], bubbles:[], pads:[], warn:[], finishIdx:0, finish
   dirL:{x:-0.7,y:-0.7}, dirR:{x:0.7,y:-0.7} };
 
 function mrBuild(level){
-  const segs = [], bubbles = [], pads = [], warn = [];
-  const hard = Math.min(level, 4);
+  const LV = mrLevel(level), segs = [], bubbles = [], pads = [], warn = [], spans = [];
+  const beginner = LV.tier === 'Beginner', adv = LV.tier === 'Advanced';
   let y = 0;
-  function add(n, curve, hill, rails = true, tag = null){
+  function add(n, curve, hill, o = {}){
     const y0 = y;
     for(let i=0;i<n;i++){
       const u = i/n;
-      segs.push({ curve: curve*Math.sin(u*Math.PI), y: y0 + hill*(1-Math.cos(u*Math.PI))/2, rails, tag });
+      segs.push({ curve: curve*Math.sin(u*Math.PI), y: y0 + hill*(1-Math.cos(u*Math.PI))/2,
+        rails: o.rails ?? true, w: o.w ?? LV.w, tag: o.tag || null, gap: !!o.gap });
     }
     y = y0 + hill;
   }
   const side = ()=>Math.random() < 0.5 ? -1 : 1;
   const maybeHill = (amt)=>Math.random() < 0.4 ? side()*rnd(amt*0.5, amt) : 0;
-  // a wacky menu of track pieces, picked at random
   const PIECES = {
     curve(){ add(Math.floor(rnd(24,38)), side()*rnd(2.8, 4.2), maybeHill(1800)); },
     scurve(){ const d = side(), c = rnd(3.2, 4.6), n = Math.floor(rnd(20,28)); add(n, d*c, maybeHill(1200)); add(n, -d*c, maybeHill(1200)); },
@@ -1875,40 +1894,69 @@ function mrBuild(level){
     drop(){ add(Math.floor(rnd(14,20)), 0, 500); add(Math.floor(rnd(26,34)), side()*rnd(0, 3), -rnd(3000, 4200)); },
     camel(){ const h = rnd(1800, 2800); add(Math.floor(rnd(18,24)), 0, h); add(Math.floor(rnd(18,24)), 0, -h); },
     bumps(){ const k = 4 + Math.floor(Math.random()*3), c = side()*rnd(0, 2.5); for(let j=0;j<k;j++){ add(7, c, 450); add(7, c, -450); } },
-    ramp(){ add(10, 0, 0); add(7, 0, 550, true, 'ramp'); segs[segs.length-1].launch = true; add(4, 0, -550, true); add(16, 0, 0); },
-    spiral(){ const d = side(); add(Math.floor(rnd(50,64)), d*rnd(4, 5), -rnd(2500, 3500)); }
+    ramp(){ add(10, 0, 0); add(7, 0, 550, { tag:'ramp' }); segs[segs.length-1].launch = true; add(4, 0, -550); add(16, 0, 0); },
+    spiral(){ add(Math.floor(rnd(50,64)), side()*rnd(4, 5), -rnd(2500, 3500)); },
+    spiralUp(){ add(Math.floor(rnd(55,70)), side()*rnd(4, 5), rnd(2800, 3800)); },
+    narrow(){
+      warn.push(segs.length);
+      const w = adv ? 0.5 : 0.58;
+      add(10, 0, 0, { w, rails:beginner });
+      add(Math.floor(rnd(28,38)), side()*rnd(0.8, 1.8), maybeHill(900), { w, rails:beginner });
+      add(8, 0, 0, { w, rails:beginner });
+    },
+    gap(){
+      add(8, 0, 0);
+      const launch = segs.length + 6;
+      add(7, 0, 550, { tag:'ramp' }); segs[launch].launch = true;
+      warn.push(segs.length);
+      const gn = adv ? 6 : 5, g0 = segs.length;
+      add(gn, 0, -300, { gap:true, rails:false });
+      add(14, 0, -250);
+      spans.push({ s:launch*MSEG, e:(g0 + gn + 3)*MSEG, g0, gn });
+    }
   };
-  const bag = ['curve','scurve','wiggle','hairpin','drop','camel','bumps','ramp','spiral'];
+  const all = Object.keys(PIECES).filter(k=>k !== 'narrow' || !beginner);
+  let list = LV.p;
+  if(!list){ list = []; let last = ''; for(let k=0;k<12 + Math.min(level - 9, 6);k++){ let p; do { p = all[Math.floor(Math.random()*all.length)]; } while(p === last); list.push(last = p); } }
   add(22, 0, 0);
-  const pieces = 14 + hard*2;
-  let last = '';
-  for(let k=0;k<pieces;k++){
-    if(level > 0 && k % 5 === 3){ warn.push(segs.length); add(Math.floor(rnd(26,34)), 0, 0, false); continue; }
-    let pick; do { pick = bag[Math.floor(Math.random()*bag.length)]; } while(pick === last);
-    // first race: make sure the fun stuff shows up early
-    if(level === 0 && k < 4) pick = ['scurve','ramp','wiggle','drop'][k];
-    last = pick; PIECES[pick]();
-    add(4, 0, 0);
-  }
-  add(30, 0, 0, true);
+  for(const p of list){ PIECES[p](); add(4, 0, 0); }
+  add(30, 0, 0);
   const finishIdx = segs.length;
-  add(70, 0, 0, true);
+  add(70, 0, 0);
+  // smooth the width so the track narrows and widens gently
+  const w0 = segs.map(s=>s.w);
+  for(let i=0;i<segs.length;i++){ let a = 0, n = 0; for(let k=-6;k<=6;k++){ const j = i + k; if(j >= 0 && j < segs.length){ a += w0[j]; n++; } } segs[i].w = segs[i].gap ? w0[i] : a/n; }
+  const inSpan = i=>spans.some(sp=>i*MSEG >= sp.s - 6*MSEG && i*MSEG <= sp.e);
   // bubbles come in little snakes so he can follow a line of them
   for(let i=30; i<finishIdx-10; ){
-    const len = 4 + Math.floor(Math.random()*4), ph = rnd(0,6), amp = rnd(0.2,0.55), drift = rnd(-0.55,0.55);
+    const len = 4 + Math.floor(Math.random()*4), ph = rnd(0,6), amp = rnd(0.2,0.55), drift = rnd(-0.5,0.5);
     const col = COLORS[Math.floor(Math.random()*COLORS.length)];
     for(let j=0;j<len;j++){
       const ii = i + j*3; if(ii >= finishIdx-5) break;
-      const d = segs[ii].rails ? drift : 0;
-      bubbles.push({ z:ii*MSEG, x:clamp(d + Math.sin(ph + j*0.6)*amp, -0.75, 0.75), col, ph:rnd(0,6), dead:false });
+      if(inSpan(ii) || segs[ii].tag) continue;
+      const lim = Math.max(0.1, (segs[ii].w - 0.3)/LAT);
+      bubbles.push({ z:ii*MSEG, x:clamp(drift + Math.sin(ph + j*0.6)*amp, -lim, lim), h:MRAD, col, ph:rnd(0,6), dead:false });
     }
     i += len*3 + Math.floor(rnd(12, 22));
   }
-  for(let i=60; i<finishIdx-30; i += Math.floor(rnd(55, 85))){
-    if(segs[i].rails && segs[i+4].rails && !segs[i].tag && !segs[i+4].tag) pads.push({ i, x:rnd(-0.45, 0.45) });
+  // a rainbow of bubbles along each jump, right where the marble flies
+  for(const sp of spans){
+    for(let k=1;k<=4;k++){
+      const tt = k*0.2, h = 2300*tt - 0.5*4500*tt*tt;
+      bubbles.push({ z:sp.s + 2400*tt, x:0, h:MRAD + h, col:COLORS[(k + sp.g0) % COLORS.length], ph:rnd(0,6), dead:false, arc:true });
+    }
   }
-  return { segs, bubbles, pads, warn, finishIdx, finishZ:finishIdx*MSEG };
+  const padStep = LV.pads ? [28, 42] : [55, 85];
+  for(let i=50; i<finishIdx-30; i += Math.floor(rnd(...padStep))){
+    if(segs[i].rails && segs[i+4].rails && !segs[i].tag && !segs[i+4].tag && !inSpan(i) && segs[i].w > 0.8) pads.push({ i, x:rnd(-0.4, 0.4) });
+  }
+  return { segs, bubbles, pads, warn, spans, finishIdx, finishZ:finishIdx*MSEG, lv:LV };
 }
+function mrArc(z){
+  for(const sp of mr.spans) if(z >= sp.s && z <= sp.e) return Math.sin(Math.PI*(z - sp.s)/(sp.e - sp.s))*550;
+  return 0;
+}
+function mrSegAt(z){ return mr.segs[clamp(Math.floor(z/MSEG), 0, mr.segs.length-1)]; }
 
 function mrSound(on){
   if(!ac) return;
@@ -1974,10 +2022,10 @@ function updateMarble(dt, now, fresh){
   mr.bump = Math.max(0, mr.bump - dt);
 
   if(mr.phase === 'count'){
-    const step = mr.phaseT < 1.4 ? 0 : mr.phaseT < 2.2 ? 1 : mr.phaseT < 3.0 ? 2 : mr.phaseT < 3.8 ? 3 : 4;
+    const step = mr.phaseT < 1.8 ? 0 : mr.phaseT < 2.6 ? 1 : mr.phaseT < 3.4 ? 2 : mr.phaseT < 4.2 ? 3 : 4;
     if(step !== mr.countStep){
       mr.countStep = step;
-      const th = MTHEMES[mr.level % MTHEMES.length];
+      const th = MTHEMES[mr.lv.theme];
       if(step === 0) mrSay(th.name + ' race! Get ready!', true);
       else if(step < 4){ mrSay(String(4-step), true); tone(440,440,0.25,'triangle',0.25); }
       else { mrSay('Go!', true); tone(880,880,0.45,'triangle',0.3); mr.phase = 'race'; mr.phaseT = 0; }
@@ -1995,21 +2043,28 @@ function updateMarble(dt, now, fresh){
 
     if(mr.fall > 0){
       mr.fall -= dt; mr.fallY += 2500*dt*(1.3 - mr.fall);
-      if(mr.fall <= 0){ mr.fall = 0; mr.fallY = 0; mr.x = 0; mr.speed = 1400; sfx.ready(); mrSay('Back on the track!', true); }
+      if(mr.fall <= 0){
+        mr.fall = 0; mr.fallY = 0; mr.x = 0; mr.speed = 1400; mr.jumpY = 0; mr.jumpV = 0;
+        for(const sp of mr.spans) if(mr.pos >= sp.s - 2*MSEG && mr.pos <= sp.e) mr.pos = sp.e + MSEG;
+        sfx.ready(); mrSay('Back on the track!', true);
+      }
     } else {
       const sp = mr.speed/2400;
       mr.x += mr.steer*1.7*dt*(0.6 + 0.4*sp);
       mr.x -= seg.curve*0.07*sp*sp*dt;
-      if(Math.abs(mr.x) > 1){
+      const lim = Math.max(0.15, (seg.w - 0.15)/LAT), fallLim = seg.w/LAT + 0.06;
+      if(seg.gap && mr.jumpY <= 0){
+        mr.fall = 1.3; mr.fallY = 0; tone(800,120,0.9,'sine',0.25);
+      } else if(Math.abs(mr.x) > lim){
         if(seg.rails){
-          mr.x = Math.sign(mr.x);
+          mr.x = Math.sign(mr.x)*lim;
           if(now - mr.lastBump > 600){
             mr.lastBump = now; mr.speed *= 0.82; mr.bump = 0.35; sfx.boing();
             if(now - lastSpeak > 4000) mrSay(['Boing!','Bonk!','Oopsie!'][Math.floor(Math.random()*3)]);
           }
         } else if(mr.jumpY > 0){
-          mr.x = clamp(mr.x, -1.1, 1.1);
-        } else if(Math.abs(mr.x) > 1.1){
+          mr.x = clamp(mr.x, -fallLim, fallLim);
+        } else if(Math.abs(mr.x) > fallLim){
           mr.fall = 1.3; mr.fallY = 0; guy.spinT = 0.8;
           tone(800,120,0.9,'sine',0.25); mrSay('Whoa! Whoops!', true);
         }
@@ -2022,15 +2077,15 @@ function updateMarble(dt, now, fresh){
     const prevSi = si;
     mr.pos += mr.speed*dt;
     const nowSeg = mr.segs[clamp(Math.floor(mr.pos/MSEG), 0, mr.segs.length-1)];
-    if(nowSeg.launch && Math.floor(mr.pos/MSEG) !== prevSi && mr.jumpY <= 0 && mr.fall <= 0){
-      mr.jumpV = 1700 + mr.speed*0.25; mr.jumpY = 0.01; tone(300,1400,0.5,'sine',0.25); mrSay('Wheee!', true); guy.spinT = 0.8;
+    if(nowSeg.launch && Math.floor(mr.pos/MSEG) !== prevSi && mr.fall <= 0){
+      mr.speed = Math.max(mr.speed, 2200); mr.jumpV = Math.max(mr.jumpV, 1700 + mr.speed*0.25); mr.jumpY = Math.max(mr.jumpY, 0.01); tone(300,1400,0.5,'sine',0.25); mrSay('Wheee!', true); guy.spinT = 0.8;
     }
     mr.roll = (mr.roll + mr.speed*dt/(Math.PI*2*MRAD)) % 1;
 
     // bubbles
     for(const b of mr.bubbles){
       if(b.dead || Math.abs(b.z - mr.pos) > 220 || mr.fall > 0) continue;
-      if(Math.abs(b.x - mr.x) < 0.32 && mr.jumpY < 400){
+      if(Math.abs(b.x - mr.x) < 0.32 && Math.abs(b.h - (MRAD + mr.jumpY)) < 330){
         b.dead = true; sfx.pop(); mr.got++;
         const x = b.sx ?? W/2, y = b.sy ?? H*0.7, r = b.sr ?? 40*S;
         for(let i=0;i<14;i++){
@@ -2067,7 +2122,7 @@ function updateMarble(dt, now, fresh){
       if(Math.abs(r.z - mr.pos) < MSEG*0.9 && Math.abs(r.x - mr.x) < 0.38){
         const s = Math.sign(r.x - mr.x) || 1; r.x += s*2*dt;
       }
-      r.x = clamp(r.x, -0.9, 0.9);
+      { const rs = mrSegAt(r.z), rl = Math.max(0.1, (rs.w - 0.2)/LAT); r.x = clamp(r.x, -rl, rl); }
       if(!r.done && r.z >= mr.finishZ){ r.done = true; mr.finishOrder.push(r); }
     });
     // place callouts
@@ -2155,12 +2210,12 @@ function quad(x1l, x1r, y1, x2l, x2r, y2, col){
 }
 
 function mrBG(t, th, HZ){
-  const g = ctx.createLinearGradient(0,0,0,HZ); g.addColorStop(0, th.sky[0]); g.addColorStop(1, th.sky[1]);
-  ctx.fillStyle = g; ctx.fillRect(0,0,W,HZ+2);
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, th.sky[0]); g.addColorStop(HZ/H, th.sky[1]); g.addColorStop(1, th.sky[2]);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
   const sx = mr.skyX*W;
-  if(!th.ground){
-    ctx.fillStyle = '#07071f'; ctx.fillRect(0,HZ,W,H-HZ);
-    for(let i=0;i<110;i++){
+  if(th.stars){
+    for(let i=0;i<140;i++){
       const par = 0.3 + (i%3)*0.25;
       const x = (((i*137.5 - sx*par) % W) + W) % W, y = (i*71.3 % 1000)/1000*H;
       ctx.globalAlpha = 0.5 + 0.5*Math.sin(t*3 + i);
@@ -2170,25 +2225,38 @@ function mrBG(t, th, HZ){
     const px = (((W*0.78 - sx*0.5) % (W*1.4)) + W*1.4) % (W*1.4) - W*0.2, py = H*0.17, pr = 60*S;
     ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(px, py, pr, 0, 7); ctx.fill();
     ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 8*S; ctx.beginPath(); ctx.ellipse(px, py, pr*1.7, pr*0.4, -0.3, 0, 7); ctx.stroke();
-    return;
+  } else {
+    // soft sun
+    const sg = ctx.createRadialGradient(W*0.8, HZ*0.35, 0, W*0.8, HZ*0.35, 140*S);
+    sg.addColorStop(0, 'rgba(255,255,230,.95)'); sg.addColorStop(0.3, 'rgba(255,250,200,.5)'); sg.addColorStop(1, 'rgba(255,250,200,0)');
+    ctx.fillStyle = sg; ctx.fillRect(W*0.8 - 140*S, HZ*0.35 - 140*S, 280*S, 280*S);
   }
-  // sun with a face
-  const sunx = W*0.8, suny = HZ*0.35, sr = 45*S;
-  ctx.fillStyle = '#ffe14d'; ctx.beginPath(); ctx.arc(sunx, suny, sr, 0, 7); ctx.fill();
-  ctx.fillStyle = '#5a3a00'; ctx.beginPath(); ctx.arc(sunx-14*S, suny-6*S, 4*S, 0, 7); ctx.arc(sunx+14*S, suny-6*S, 4*S, 0, 7); ctx.fill();
-  ctx.lineWidth = 3*S; ctx.strokeStyle = '#5a3a00'; ctx.beginPath(); ctx.arc(sunx, suny+4*S, 14*S, 0.2, Math.PI-0.2); ctx.stroke();
-  // far hills slide when the track curves
-  ctx.fillStyle = th.hill; ctx.beginPath(); ctx.moveTo(0, HZ+2);
-  for(let x=0; x<=W+20; x+=20){
-    const u = (x + sx*0.8)/(160*S);
-    ctx.lineTo(x, HZ - (Math.sin(u)*0.5 + Math.sin(u*0.43 + 1)*0.5 + 1)*40*S);
+  // far floating islands sitting on the horizon
+  for(let i=0;i<6;i++){
+    const span = W*1.8, x = (((i*W*0.31 - sx*0.6) % span) + span) % span - W*0.4;
+    const y = HZ + (i % 2 ? -26 : 8)*S - (i % 3)*10*S, w = (70 + (i*37 % 60))*S;
+    ctx.fillStyle = th.side; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w*0.75, y + 22*S); ctx.lineTo(x + w*0.25, y + 22*S); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = th.tile[1]; ctx.fillRect(x, y - 5*S, w, 6*S);
   }
-  ctx.lineTo(W, HZ+2); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = th.ground[0]; ctx.fillRect(0, HZ, W, H-HZ);
+  if(th.stars) return;
+  // clouds float above and below: the track is up in the sky
+  ctx.fillStyle = th.cloud;
+  for(let i=0;i<16;i++){
+    const below = i >= 6, par = below ? 1.2 + (i%3)*0.5 : 0.3 + (i%3)*0.15;
+    const span = W*1.7;
+    const x = (((i*411 - sx*par*W/600 - t*(6 + (i%3)*4)*S) % span) + span) % span - W*0.35;
+    const y = below ? HZ + (0.12 + ((i*0.37) % 1)*0.8)*(H - HZ) : HZ*(0.15 + ((i*0.29) % 1)*0.7);
+    const r = (below ? 40 + (i%3)*22 : 22 + (i%3)*10)*S;
+    ctx.globalAlpha = below ? 0.8 : 0.9;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 7); ctx.arc(x + r*1.1, y - r*0.35, r*1.15, 0, 7); ctx.arc(x + r*2.2, y, r*0.95, 0, 7); ctx.arc(x + r*1.1, y + r*0.3, r, 0, 7);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawMarble(t){
-  const th = MTHEMES[mr.level % MTHEMES.length];
+  const th = MTHEMES[mr.lv.theme];
   if(mr.phase === 'funnel' || mr.phase === 'done'){ drawFunnel(t, th); return; }
   const K = Math.min(W, H*1.6)/2, Kx = K*Math.min(1, W/(1.3*H)), HZ = H*0.42;
   const PLZ = CAMD*CAMH*K/(0.38*H);
@@ -2226,12 +2294,26 @@ function drawMarble(t){
   const padAt = new Map(); for(const p of mr.pads) for(let k=0;k<4;k++) padAt.set(p.i+k, p);
   for(let k=vis.length-1;k>=0;k--){
     const { i, s, p1, p2 } = vis[k];
-    const alt = Math.floor(i/3) % 2;
-    if(th.ground){ ctx.fillStyle = th.ground[alt]; ctx.fillRect(0, p2.y, W, p1.y - p2.y + 1); }
-    const r1 = p1.w*0.1, r2 = p2.w*0.1;
-    const rc = s.rails ? th.stripe[Math.floor(i/3) % th.stripe.length] : (i % 2 ? '#ff3b4e' : '#ffffff');
-    quad(p1.x-p1.w-r1, p1.x+p1.w+r1, p1.y, p2.x-p2.w-r2, p2.x+p2.w+r2, p2.y, rc);
-    quad(p1.x-p1.w, p1.x+p1.w, p1.y, p2.x-p2.w, p2.x+p2.w, p2.y, s.tag === 'ramp' ? (i % 2 ? '#ffd23b' : '#ff8a2b') : th.road[alt]);
+    if(s.gap) continue;
+    const sn = segs[i+1] || s, prev = segs[i-1];
+    const w1 = p1.w*s.w, w2 = p2.w*(sn.gap ? s.w : sn.w);
+    const e1 = p1.w*0.07, e2 = p2.w*0.07;
+    const t1 = p1.sc*260*Kx, t2 = p2.sc*260*Kx;
+    // the platform has thickness: it floats in the sky
+    ctx.fillStyle = th.side;
+    for(const sd of [-1, 1]){
+      const xa = p1.x + sd*(w1 + e1), xb = p2.x + sd*(w2 + e2);
+      ctx.beginPath(); ctx.moveTo(xa, p1.y); ctx.lineTo(xb, p2.y); ctx.lineTo(xb, p2.y + t2); ctx.lineTo(xa, p1.y + t1); ctx.closePath(); ctx.fill();
+    }
+    if(prev && prev.gap){ quad(p1.x-w1-e1, p1.x+w1+e1, p1.y, p1.x-w1-e1, p1.x+w1+e1, p1.y + t1, th.side); }
+    // edge trim then tiles
+    quad(p1.x-w1-e1, p1.x+w1+e1, p1.y, p2.x-w2-e2, p2.x+w2+e2, p2.y, th.edge[Math.floor(i/2) % th.edge.length]);
+    const cols = s.w < 0.75 ? 2 : 4, row = Math.floor(i/2);
+    for(let c=0;c<cols;c++){
+      const u0 = c/cols, u1 = (c+1)/cols;
+      const col = s.tag === 'ramp' ? ((c + i) % 2 ? '#ffd23b' : '#ff8a2b') : th.tile[(c + row) % 2];
+      quad(lerp(p1.x-w1, p1.x+w1, u0), lerp(p1.x-w1, p1.x+w1, u1), p1.y, lerp(p2.x-w2, p2.x+w2, u0), lerp(p2.x-w2, p2.x+w2, u1), p2.y, col);
+    }
     const pad = padAt.get(i);
     if(pad){
       const c1 = p1.x + pad.x*p1.w*LAT, c2 = p2.x + pad.x*p2.w*LAT, h1 = p1.w*0.18, h2 = p2.w*0.18;
@@ -2241,17 +2323,16 @@ function drawMarble(t){
       ctx.moveTo(mx - hw, p1.y - (p1.y-p2.y)*0.15); ctx.lineTo(mx, p2.y + (p1.y-p2.y)*0.1); ctx.lineTo(mx + hw, p1.y - (p1.y-p2.y)*0.15); ctx.lineTo(mx, my); ctx.closePath(); ctx.fill();
     }
     if(i === mr.finishIdx || i === mr.finishIdx + 1){
-      const cols = 8;
-      for(let c=0;c<cols;c++){
-        const u0 = c/cols, u1 = (c+1)/cols;
-        quad(lerp(p1.x-p1.w, p1.x+p1.w, u0), lerp(p1.x-p1.w, p1.x+p1.w, u1), p1.y,
-             lerp(p2.x-p2.w, p2.x+p2.w, u0), lerp(p2.x-p2.w, p2.x+p2.w, u1), p2.y, (c + i) % 2 ? '#111' : '#fff');
+      const n = 8;
+      for(let c=0;c<n;c++){
+        const u0 = c/n, u1 = (c+1)/n;
+        quad(lerp(p1.x-w1, p1.x+w1, u0), lerp(p1.x-w1, p1.x+w1, u1), p1.y, lerp(p2.x-w2, p2.x+w2, u0), lerp(p2.x-w2, p2.x+w2, u1), p2.y, (c + i) % 2 ? '#111' : '#fff');
       }
     }
     if(s.rails){
-      const h1 = p1.sc*130*Kx, h2 = p2.sc*130*Kx;
+      const h1 = p1.sc*120*Kx, h2 = p2.sc*120*Kx;
       for(const sd of [-1, 1]){
-        const xa = p1.x + sd*(p1.w + r1), xb = p2.x + sd*(p2.w + r2);
+        const xa = p1.x + sd*(w1 + e1), xb = p2.x + sd*(w2 + e2);
         ctx.fillStyle = th.rail; ctx.beginPath();
         ctx.moveTo(xa, p1.y); ctx.lineTo(xb, p2.y); ctx.lineTo(xb, p2.y - h2); ctx.lineTo(xa, p1.y - h1); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = th.top; ctx.lineWidth = Math.max(1, h1*0.25); ctx.beginPath(); ctx.moveTo(xa, p1.y - h1); ctx.lineTo(xb, p2.y - h2); ctx.stroke();
@@ -2271,7 +2352,7 @@ function drawMarble(t){
   for(const b of mr.bubbles){
     if(b.dead || b.z < camZ + 100 || b.z > maxZ) continue;
     spr.push({ z:b.z, f:()=>{
-      const p = place(b.z, b.x, MRAD + Math.sin(t*2 + b.ph)*30); if(!p) return;
+      const p = place(b.z, b.x, b.h + Math.sin(t*2 + b.ph)*30); if(!p) return;
       const r = BRAD*p.sc*Kx; if(r < 1) return;
       b.sx = p.x; b.sy = p.y; b.sr = r;
       ctx.fillStyle = b.col.c + '55'; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill();
@@ -2282,15 +2363,15 @@ function drawMarble(t){
   for(const r of mr.rivals){
     if(r.z < camZ + 100 || r.z > maxZ) continue;
     spr.push({ z:r.z, f:()=>{
-      const p = place(r.z, r.x, 0); if(!p) return;
+      const lift = mrArc(r.z), p = place(r.z, r.x, lift); if(!p) return;
       const rad = MRAD*p.sc*Kx;
-      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(p.x, p.ground, rad*0.95, rad*0.3, 0, 0, 7); ctx.fill();
+      if(!lift){ ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(p.x, p.ground, rad*0.95, rad*0.3, 0, 0, 7); ctx.fill(); }
       drawBall(p.x, p.y - rad, rad, r.c, '#ffffff', r.roll);
     }});
   }
   if(mr.finishZ < maxZ){
     spr.push({ z:mr.finishZ, f:()=>{
-      const c = at(mr.finishZ), pl = P(c.wx - ROADW*1.12, c.wy, mr.finishZ), prr = P(c.wx + ROADW*1.12, c.wy, mr.finishZ);
+      const c = at(mr.finishZ), fw = mrSegAt(mr.finishZ).w*1.12, pl = P(c.wx - ROADW*fw, c.wy, mr.finishZ), prr = P(c.wx + ROADW*fw, c.wy, mr.finishZ);
       if(!pl || !prr) return;
       const ph = 900*pl.sc*Kx, pw = 40*pl.sc*Kx, bh = 160*pl.sc*Kx;
       ctx.fillStyle = '#fff'; ctx.fillRect(pl.x - pw/2, pl.y - ph, pw, ph); ctx.fillRect(prr.x - pw/2, prr.y - ph, pw, ph);
@@ -2301,7 +2382,7 @@ function drawMarble(t){
   spr.push({ z:pz, f:()=>{
     const p = P(pr.wx + mr.x*ROADW*LAT, pr.wy, pz); if(!p) return;
     const rad = MRAD*p.sc*Kx, lift = mr.jumpY*p.sc*Kx, drop = mr.fallY*p.sc*Kx;
-    if(mr.fall <= 0){
+    if(mr.fall <= 0 && !mrSegAt(pz).gap){
       const k = 1/(1 + mr.jumpY/600);
       ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.x, p.y, rad*0.95*k, rad*0.3*k, 0, 0, 7); ctx.fill();
     }
@@ -2331,7 +2412,7 @@ function drawFunnel(t, th){
   const n = 14;
   for(let k=0;k<n;k++){
     const f = 1 - k/n;
-    ctx.fillStyle = k % 2 ? th.road[0] : th.stripe[k % th.stripe.length];
+    ctx.fillStyle = k % 2 ? th.tile[0] : th.edge[k % th.edge.length];
     ctx.beginPath(); ctx.ellipse(cx, cy + (1-f)*dep, R*f, R*f*sq, 0, 0, 7); ctx.fill();
     ctx.fillStyle = `rgba(0,0,0,${0.03*k})`; ctx.fill();
   }
@@ -2366,6 +2447,16 @@ function drawFunnel(t, th){
 }
 
 function drawMarbleHUD(t){
+  if(mr.phase === 'count' && mr.countStep === 0){
+    const a = clamp(Math.min(mr.phaseT*4, (1.8 - mr.phaseT)*4), 0, 1);
+    ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(20,30,60,.45)'; ctx.beginPath(); ctx.roundRect(W/2 - 330*S, H*0.3, 660*S, 170*S, 30*S); ctx.fill();
+    ctx.font = `800 ${30*S}px "Baloo 2", sans-serif`; ctx.fillStyle = '#ffd84d';
+    ctx.fillText(mr.lv.tier + '  ·  Level ' + (mr.level + 1), W/2, H*0.3 + 52*S);
+    ctx.font = `800 ${78*S}px "Baloo 2", sans-serif`; ctx.fillStyle = '#fff';
+    ctx.fillText(mr.lv.name, W/2, H*0.3 + 135*S);
+    ctx.restore(); ctx.textAlign = 'left';
+  }
   // race bar at the top: everyone's marble and the finish flag
   const x0 = W*0.22, x1 = W*0.66, y = 84*S;
   ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 14*S;
@@ -2391,7 +2482,7 @@ function drawMarbleHUD(t){
   }
   // countdown
   if(mr.phase === 'count' && mr.countStep >= 1){
-    const label = String(4 - mr.countStep), f = (mr.phaseT - [0,1.4,2.2,3.0][mr.countStep])/0.8;
+    const label = String(4 - mr.countStep), f = (mr.phaseT - [0,1.8,2.6,3.4][mr.countStep])/0.8;
     ctx.save(); ctx.translate(W/2, H*0.45); ctx.scale(1.4 - f*0.4, 1.4 - f*0.4);
     ctx.font = `800 ${180*S}px "Baloo 2", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.lineWidth = 14*S; ctx.strokeStyle = '#fff'; ctx.strokeText(label, 0, 0);
