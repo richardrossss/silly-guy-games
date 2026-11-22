@@ -559,7 +559,7 @@ function startPlay(){
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
   else if(game === 'dots'){ dots.lv = 0; dots.stars = 0; startDots(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
-  else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; say('Pop the bubbles with your hands!', true); }
+  else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; startBubbleMusic(); say('Pop the bubbles with your hands!', true); }
   lastTip = performance.now();
   $('#hudMusic').style.display = game === 'dots' ? '' : 'none';
   updatePreviewVis();
@@ -955,7 +955,6 @@ function draw(now){
     drawHands(t);
   } else if(game === 'bubbles' && state === 'play'){
     drawBubbleBG(t);
-    drawGuy(t);
     drawBubbles(t);
     drawHands(t);
   } else {
@@ -993,6 +992,15 @@ function toScreen(p){
   // map the middle of the camera frame to the whole screen so he can reach every corner
   return { x: clamp((p.x/vw - 0.12)/0.76, 0, 1)*W, y: clamp((p.y/vh - 0.05)/0.7, 0, 1)*H };
 }
+// bubbles float in from the bottom, drift down from the top, and blow in from the sides
+function newBubble(col, r, now){
+  const side = Math.random(), sp = rnd(55, 95)*S, b = { r, col, ph:rnd(0,6), born:now, vx:0, vy:0 };
+  if(side < 0.4){ b.x = rnd(W*0.08, W*0.92); b.y = H + r; b.vy = -sp; }
+  else if(side < 0.65){ b.x = rnd(W*0.08, W*0.92); b.y = -r; b.vy = sp*0.8; }
+  else if(side < 0.825){ b.x = -r; b.y = rnd(H*0.15, H*0.8); b.vx = sp*1.3; b.vy = rnd(-15,15)*S; }
+  else { b.x = W + r; b.y = rnd(H*0.15, H*0.8); b.vx = -sp*1.3; b.vy = rnd(-15,15)*S; }
+  return b;
+}
 function updateBubbles(dt, now, fresh){
   const t = now/1000;
   // hands
@@ -1010,22 +1018,17 @@ function updateBubbles(dt, now, fresh){
     if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
     if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
   }
-  // the silly guy hangs out on the side, copying his arms
-  { const b = basePos(); guy.x = b.x; guy.y = b.y; }
   speed = lerp(speed, 90*S, 0.05);
-  if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
 
   // spawn
   if(now > bub.nextSpawn && bub.list.length < 11){
     const col = COLORS[Math.floor(Math.random()*COLORS.length)];
-    const r = rnd(45, 70)*S;
-    bub.list.push({ x:rnd(W*0.2, W*0.92), y:H + r, r, col, vy:rnd(55, 95)*S, ph:rnd(0,6), born:now });
+    bub.list.push(newBubble(col, rnd(45, 70)*S, now));
     bub.nextSpawn = now + rnd(650, 1100);
   }
   // make sure the target color is always on screen
   if(bub.target && !bub.list.some(b=>b.col===bub.target) && now > bub.nextSpawn - 400){
-    const r = rnd(55,70)*S;
-    bub.list.push({ x:rnd(W*0.25, W*0.9), y:H + r, r, col:bub.target, vy:rnd(55,80)*S, ph:rnd(0,6), born:now });
+    bub.list.push(newBubble(bub.target, rnd(55,70)*S, now));
   }
   // pick a color to call out
   if(!bub.target && now > bub.nextTarget){
@@ -1040,17 +1043,19 @@ function updateBubbles(dt, now, fresh){
 
   // move + hit
   for(const b of bub.list){
-    b.y -= b.vy*dt;
-    b.x += Math.sin(t*1.5 + b.ph)*25*S*dt;
+    b.x += b.vx*dt + (b.vx ? 0 : Math.sin(t*1.5 + b.ph)*25*S*dt);
+    b.y += b.vy*dt + (b.vy ? 0 : Math.sin(t*1.5 + b.ph)*25*S*dt);
+    if(b.vx && b.vy) b.x += Math.sin(t*1.5 + b.ph)*20*S*dt;
     for(const h of bub.hands){
       if(!b.dead && Math.hypot(h.x-b.x, h.y-b.y) < b.r + 42*S) { b.dead = true; popBubble(b, now); }
     }
   }
-  bub.list = bub.list.filter(b=>!b.dead && b.y > -b.r*2);
+  bub.list = bub.list.filter(b=>!b.dead && b.y > -b.r*2.5 && b.y < H + b.r*2.5 && b.x > -b.r*2.5 && b.x < W + b.r*2.5);
   for(const p of bits){ /* bits move in main update */ }
 }
 function popBubble(b, now){
   sfx.pop();
+  if(ac){ const f = POP_NOTES[Math.floor(Math.random()*POP_NOTES.length)]; inst.xylo(ac.currentTime, f); }
   for(let i=0;i<14;i++){
     const a = Math.random()*Math.PI*2, v = rnd(120,360)*S;
     bits.push({ x:b.x + Math.cos(a)*b.r*0.8, y:b.y + Math.sin(a)*b.r*0.8, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.4,0.8), c:b.col.c, s:rnd(5,9)*S, rot:0, vr:rnd(-8,8), g:0.3 });
@@ -3148,6 +3153,33 @@ function dotWinSound(){
   DPENTA.slice(0, 13).forEach((m,i)=>dMallet(at + i*0.07, m, 0.14, dmus.fx, 0.6));
   [72,76,79,84].forEach(m=>dMallet(at + 13*0.07 + 0.1, m, 0.12, dmus.fx, 0.7));
 }
+
+
+/* ---------- bubble pop music: a bouncy little loop ---------- */
+const BUB_STEP = 60/104/4;
+const BUB_MEL = [ // 64 sixteenths, 0 = rest, otherwise Hz
+  784,0,659,0, 784,0,1047,0, 880,0,784,0, 659,0,0,0,
+  698,0,880,0, 1047,0,880,0, 784,0,659,0, 587,0,0,0,
+  659,0,784,0, 880,0,784,0, 659,0,587,0, 523,0,659,0,
+  587,0,659,0, 784,0,659,0, 587,0,0,0, 0,0,0,0 ];
+const BUB_BASS = [130.8, 174.6, 130.8, 196]; // C F C G, one per bar
+const bm = { next:0, step:0 };
+function startBubbleMusic(){ audio(); noiseBuffer(); if(ac){ bm.next = ac.currentTime + 0.15; bm.step = 0; } }
+setInterval(()=>{
+  if(!(state === 'play' && game === 'bubbles' && ac)) return;
+  if(bm.next < ac.currentTime - 0.2) bm.next = ac.currentTime + 0.05;
+  while(bm.next < ac.currentTime + 0.12){
+    const at = bm.next, i = bm.step % 64, s = i % 16, bar = Math.floor(i/16);
+    const f = BUB_MEL[i];
+    if(f){ oscAt(at, f, f, 0.35, 'sine', 0.14); oscAt(at, f*2, f*2, 0.08, 'triangle', 0.03); }
+    if(s === 0 || s === 8){ const b = BUB_BASS[bar]; oscAt(at, b, b*0.99, 0.3, 'triangle', 0.22); }
+    if(s === 4 || s === 12){ const b = BUB_BASS[bar]*1.5; oscAt(at, b, b, 0.18, 'triangle', 0.12); }
+    if(s % 4 === 0) inst.kick(at, 0.25);
+    if(s % 4 === 2) inst.hat(at, 0.05);
+    bm.next += BUB_STEP; bm.step++;
+  }
+}, 25);
+const POP_NOTES = [523.3, 587.3, 659.3, 784, 880, 1046.5];
 
 /* ---------- live refresh: reload when a new version is published ---------- */
 let myVersion = null, pendingReload = false;
