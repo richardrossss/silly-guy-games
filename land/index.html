@@ -75,7 +75,7 @@ button.go.alt{font-size:18px;background:var(--paper);padding:4px 22px 1px;box-sh
 const cv=document.getElementById('c');let ctx=cv.getContext('2d');
 const $=id=>document.getElementById(id);
 let vw=400,vh=700,dpr=1,zoom=1,baseZoom=1,camZ=1;
-function resize(){const r=cv.getBoundingClientRect();vw=r.width||innerWidth;vh=r.height||innerHeight;dpr=Math.min(2,devicePixelRatio||1);cv.width=Math.round(vw*dpr);cv.height=Math.round(vh*dpr);baseZoom=Math.max(.72,Math.min(1.25,Math.min(vw/420,vh/720)));zoom=baseZoom*camZ}
+function resize(){const r=cv.getBoundingClientRect();vw=r.width||innerWidth;vh=r.height||innerHeight;dpr=Math.min(matchMedia('(pointer: coarse)').matches?1.5:2,devicePixelRatio||1);cv.width=Math.round(vw*dpr);cv.height=Math.round(vh*dpr);baseZoom=Math.max(.72,Math.min(1.25,Math.min(vw/420,vh/720)));zoom=baseZoom*camZ}
 addEventListener('resize',resize);resize();
 
 const W=2400,H=2400,INK='#24203a';

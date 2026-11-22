@@ -109,8 +109,10 @@ const cv = $('#game'), ctx = cv.getContext('2d');
 const pv = $('#preview'), pctx = pv.getContext('2d');
 const video = $('#video');
 let W, H, S, DPR;
+// sharpness: phones and iPads start a little lower, and step down further if frames come slow
+let QUAL = matchMedia('(pointer: coarse)').matches ? 1.5 : 2;
 function resize(){
-  DPR = Math.min(2, devicePixelRatio || 1);
+  DPR = Math.min(QUAL, devicePixelRatio || 1);
   W = innerWidth; H = innerHeight;
   cv.width = W*DPR; cv.height = H*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0);
@@ -3509,8 +3511,14 @@ setInterval(()=>{
 setMode(mode);
 setGame(game);
 let last = performance.now();
+const perf = { t:0, n:0, slow:0 };
 function frame(now){
-  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  const raw = now - last;
+  const dt = Math.min(0.05, raw/1000); last = now;
+  if(raw < 500 && !document.hidden){
+    perf.t += raw; perf.n++; if(raw > 24) perf.slow++;
+    if(perf.t > 3000){ if(perf.slow/perf.n > 0.3 && QUAL > 1){ QUAL = Math.max(1, QUAL - 0.25); resize(); } perf.t = perf.n = perf.slow = 0; }
+  }
   if(input === 'camera' && !(game === 'dots' && state === 'play' && hnd.lm)) readPose(now);
   update(dt, now);
   draw(now);

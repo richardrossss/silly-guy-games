@@ -14,7 +14,9 @@ const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2;
 /* ---------------- renderer ---------------- */
 const cv = $('#c');
 const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !TOUCH, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, TOUCH ? 1.5 : 2));
+const QSTEPS = [2, 1.5, 1.25, 1, 0.85, 0.7];
+let qi = QSTEPS.findIndex((q) => q <= Math.min(devicePixelRatio || 1, TOUCH ? 1.25 : 2)); if (qi < 0) qi = QSTEPS.length - 1;
+renderer.setPixelRatio(QSTEPS[qi]);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#8fd3ff');
 scene.fog = new THREE.Fog('#bfe6ff', 90, 260);
@@ -38,6 +40,22 @@ function canvasTex(w, h, draw, repeat) {
   if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
   return t;
 }
+// merge meshes into one mesh per material, in the space of `space` (a phone draws a few big things far faster)
+function mergeInto(meshes, space) {
+  const inv = new THREE.Matrix4(); if (space) { space.updateMatrixWorld(true); inv.copy(space.matrixWorld).invert(); }
+  const buckets = new Map();
+  for (const o of meshes) { const k = o.material.uuid + (o.geometry.attributes.uv ? ':uv' : ''); if (!buckets.has(k)) buckets.set(k, { mat: o.material, uv: !!o.geometry.attributes.uv, parts: [] }); buckets.get(k).parts.push(o); }
+  const out = [];
+  for (const b of buckets.values()) {
+    let n = 0; const geos = b.parts.map((m) => { m.updateMatrixWorld(true); const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); n += g.attributes.position.count; return g; });
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = b.uv ? new Float32Array(n * 2) : null; let o3 = 0, o2 = 0;
+    for (const g of geos) { if (!g.attributes.normal) g.computeVertexNormals(); pos.set(g.attributes.position.array, o3); nor.set(g.attributes.normal.array, o3); if (uv && g.attributes.uv) uv.set(g.attributes.uv.array, o2); o3 += g.attributes.position.count * 3; o2 += g.attributes.position.count * 2; g.dispose(); }
+    const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); mg.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); if (uv) mg.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    mg.computeBoundingSphere(); out.push(new THREE.Mesh(mg, b.mat));
+  }
+  return out;
+}
+function mergeGroup(g) { const ms = []; g.traverse((o) => { if (o.isMesh) ms.push(o); }); const merged = mergeInto(ms, g); for (const m of ms) m.parent.remove(m); for (const c of [...g.children]) g.remove(c); for (const m of merged) g.add(m); return g; }
 const blob = new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, (g) => { const r = g.createRadialGradient(32, 32, 4, 32, 32, 30); r.addColorStop(0, 'rgba(0,0,0,.45)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); }), transparent: true, depthWrite: false });
 function shadowMesh(s) { const m = new THREE.Mesh(new THREE.PlaneGeometry(s, s), blob); m.rotation.x = -Math.PI / 2; m.renderOrder = 1; scene.add(m); return m; }
 
@@ -210,7 +228,9 @@ const roomLights = [];
   // disco button
   const btn = new THREE.Mesh(cylG(0.9, 1, 0.35, 20), new THREE.MeshLambertMaterial({ color: '#e53935', emissive: '#400' })); btn.position.set(IX + 11, 0.18, IZ + 7.5); o.add(btn); ballPit.btn = btn;
   discoBall.position.set(IX + 2, 5.2, IZ); o.add(discoBall);
-  for (let k = 0; k < 4; k++) { const l = new THREE.PointLight(COLORS[k * 2], 0, 22); l.position.set(IX - 8 + k * 6, 4.5, IZ - 2 + (k % 2) * 4); o.add(l); roomLights.push(l); }
+  // disco spots: coloured pools on the floor that only show during the party
+  const spotG = new THREE.CircleGeometry(1.6, 18);
+  for (let k = 0; k < 6; k++) { const m = new THREE.Mesh(spotG, new THREE.MeshBasicMaterial({ color: COLORS[k], transparent: true, opacity: 0.55, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.set(IX - 8 + k * 3.2, 0.05, IZ + (k % 2 ? 3 : -3)); m.visible = false; o.add(m); roomLights.push(m); }
   // a couch and a rug
   B(o, '#2f6fd6', 4, 0.9, 1.6, IX + 6, 0, IZ + 3); B(o, '#2f6fd6', 4, 1.6, 0.5, IX + 6, 0, IZ + 3.9); stat(IX + 4, IX + 8, IZ + 2.2, IZ + 4.2, 0, 0.9, { bounce: 0.6 });
   const rug = new THREE.Mesh(new THREE.CircleGeometry(3, 24), lam('#ffd1ea')); rug.rotation.x = -Math.PI / 2; rug.position.set(IX - 3, 0.03, IZ + 1); o.add(rug);
@@ -229,7 +249,7 @@ function makeSilly(color) {
   const face = new THREE.Mesh(faceGeo, faceMat); face.position.set(0, 0.42, 0.37); top.add(face);
   const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.5, 6), lam('#f7cf2a')); tuft.position.y = h + 0.2; top.add(tuft);
   const arms = [];
-  for (const sd of [-1, 1]) { const ag = new THREE.Group(); ag.position.set(sd * 0.32, h * 0.6, 0); segs[N - 2].add(ag); const chain = []; let p2 = ag; for (let k = 0; k < 2; k++) { const a2 = new THREE.Group(); a2.position.x = k === 0 ? 0 : sd * 0.6; p2.add(a2); const m = new THREE.Mesh(cylG(0.11, 0.13, 0.62, 6), fab); m.rotation.z = Math.PI / 2; m.position.x = sd * 0.3; a2.add(m); chain.push(a2); p2 = a2; } arms.push({ sd, chain }); }
+  for (const sd of [-1, 1]) { const ag = new THREE.Group(); ag.position.set(sd * 0.32, h * 0.6, 0); segs[N - 2].add(ag); const chain = []; const a2 = new THREE.Group(); ag.add(a2); const m = new THREE.Mesh(cylG(0.1, 0.13, 1.1, 6), fab); m.rotation.z = Math.PI / 2; m.position.x = sd * 0.55; a2.add(m); chain.push(a2); arms.push({ sd, chain }); }
   return { g, segs, arms, p: Math.random() * 10, flop: 0 };
 }
 function animSilly(sg, dt, dance, beat, idx) {
@@ -244,6 +264,37 @@ function animSilly(sg, dt, dance, beat, idx) {
   for (const a of sg.arms) a.chain.forEach((c, k) => { c.rotation.z = Math.sin(sg.p * 7 + k + a.sd) * 0.9 * a.sd - down * 0.8 * a.sd; c.rotation.y = Math.sin(sg.p * 5 + k) * 0.4; });
 }
 for (const [x, z, c] of [[IX - 11, IZ - 8, '#e53935'], [IX + 11.5, IZ + 1, '#2fae4a'], [IX - 11.5, IZ - 1, '#1e63d6']]) { const s = makeSilly(c); s.g.position.set(x, 0, z); s.g.rotation.y = x < IX ? Math.PI / 2 : -Math.PI / 2; scene.add(s.g); roomGuys.push(s); }
+
+/* ---------------- bake the fixed scenery: one mesh per material, outside and inside ---------------- */
+// Palms, houses, the pier, umbrellas and the beach house's insides are hundreds of little meshes.
+// They never move, so they're merged into a few big ones (a phone draws a few big things far faster).
+const outGroup = new THREE.Group(), inGroup = new THREE.Group();
+const insideKeep = [ballPit.balls, ballPit.btn, discoBall, ...pianoTiles.map((t) => t.m), ...roomLights, ...roomGuys.map((g) => g.g)];
+{
+  const keep = new Set([sea, ...pickGround, ...insideKeep]);
+  scene.updateMatrixWorld(true);
+  const outs = [], ins = [];
+  scene.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    for (let q = o; q; q = q.parent) if (keep.has(q)) return;
+    const wp = new THREE.Vector3(); o.getWorldPosition(wp); (wp.z > 400 ? ins : outs).push(o);
+  });
+  const victims = [...outs, ...ins];
+  for (const m of mergeInto(outs, null)) outGroup.add(m);
+  for (const m of mergeInto(ins, null)) inGroup.add(m);
+  for (const v of victims) v.parent.remove(v);
+  // drop the now-empty groups
+  for (const c of [...scene.children]) { if (c.isGroup && !c.children.length) scene.remove(c); }
+  scene.add(outGroup, inGroup);
+}
+let showingInside = null;
+const insideFloor = pickGround[pickGround.length - 1];
+function showSide(inside) {
+  showingInside = inside;
+  inGroup.visible = inside; insideFloor.visible = inside; for (const o of insideKeep) if (o !== roomLights[0] && !roomLights.includes(o)) o.visible = inside;
+  outGroup.visible = !inside; for (const g of pickGround) if (g !== insideFloor) g.visible = !inside;
+}
+showSide(false);
 
 /* ---------------- Reddy (the player): little, with a big R on his shirt ---------------- */
 function makeKid() {
@@ -276,7 +327,8 @@ const CAR_TYPES = [
   { name: 'kart', len: 2.4, wid: 1.5, h: 0.35, wheel: 0.3, cab: 'kart', max: 25 }
 ];
 const cars = [];
-const wheelG = new THREE.CylinderGeometry(1, 1, 1, 14);
+const wheelG = new THREE.CylinderGeometry(1, 1, 1, 12);
+const tireMat = new THREE.MeshLambertMaterial({ map: canvasTex(32, 32, (g) => { g.fillStyle = '#222'; g.fillRect(0, 0, 32, 32); g.fillStyle = '#555'; g.fillRect(0, 0, 32, 6); g.fillRect(0, 16, 32, 6); }) });
 function makeCar(type, color, x, z, yaw) {
   const T = CAR_TYPES.find((t) => t.name === type) || CAR_TYPES[0];
   const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
@@ -289,10 +341,10 @@ function makeCar(type, color, x, z, yaw) {
   for (const sx of [-1, 1]) B(body, '#fff7c2', 0.3, 0.18, 0.06, sx * (T.wid / 2 - 0.35), lift + T.h * 0.55, T.len / 2);
   const wheels = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const w = new THREE.Mesh(wheelG, lam('#222')); w.scale.set(T.wheel, 0.4 + T.wheel * 0.3, T.wheel); w.rotation.z = Math.PI / 2;
+    const w = new THREE.Mesh(wheelG, tireMat); w.scale.set(T.wheel, 0.4 + T.wheel * 0.3, T.wheel); w.rotation.z = Math.PI / 2;
     const wg = new THREE.Group(); wg.position.set(sx * (T.wid / 2 + 0.12), T.wheel, sz * (T.len / 2 - T.wheel * 0.7)); wg.add(w); root.add(wg); wheels.push({ wg, w, front: sz > 0 });
-    const hub = new THREE.Mesh(boxG(0.1, T.wheel * 0.9, T.wheel * 0.35), lam('#ddd')); hub.position.x = sx * 0.21; w.add(hub); hub.rotation.z = -Math.PI / 2;
   }
+  mergeGroup(body);
   root.position.set(x, 0, z); root.rotation.y = yaw; scene.add(root);
   const car = { T, type, color, root, body, wheels, x, z, y: groundTop(x, z), vy: 0, yaw, speed: 0, steer: 0, roll: 0, shadow: shadowMesh(Math.max(T.len, T.wid) * 1.3) };
   root.traverse((o) => { o.userData.car = car; });
@@ -303,8 +355,9 @@ function makeCar(type, color, x, z, yaw) {
 const placed = new THREE.Group(); scene.add(placed);
 const sillies = [];                               // { s, cell } for animation and booping
 const blockMats = new Map();
-const studTex = canvasTex(32, 32, (g) => { g.fillStyle = '#fff'; g.fillRect(0, 0, 32, 32); g.fillStyle = 'rgba(0,0,0,.08)'; for (const [x, y] of [[8, 8], [24, 8], [8, 24], [24, 24]]) { g.beginPath(); g.arc(x, y, 5.5, 0, 7); g.fill(); } g.fillStyle = 'rgba(255,255,255,.5)'; for (const [x, y] of [[7, 7], [23, 7], [7, 23], [23, 23]]) { g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill(); } });
-function blockMat(c) { if (!blockMats.has(c)) { const side = lam(c), top = new THREE.MeshLambertMaterial({ color: c, map: studTex }); blockMats.set(c, [side, side, top, side, side, side]); } return blockMats.get(c); }
+const studTex = canvasTex(64, 32, (g) => { g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 32); g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, 30, 32, 2); for (const [x, y] of [[40, 8], [56, 8], [40, 24], [56, 24]]) { g.fillStyle = 'rgba(0,0,0,.08)'; g.beginPath(); g.arc(x, y, 5.5, 0, 7); g.fill(); g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.arc(x - 1, y - 1, 3, 0, 7); g.fill(); } });
+const blockGeo = (() => { const g = new THREE.BoxGeometry(G, 2, G); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) { const face = Math.floor(i / 4); uv.setX(i, uv.getX(i) * 0.5 + (face === 2 ? 0.5 : 0)); } return g; })();
+function blockMat(c) { if (!blockMats.has(c)) blockMats.set(c, new THREE.MeshLambertMaterial({ color: c, map: studTex })); return blockMats.get(c); }
 const rampGeo = (() => { // a wedge in a 2 x 2 cell, rising toward +z from 0 to 2
   const v = [-1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, -1, 2, 1, 1, 2, 1];
   const f = [0, 2, 1, 0, 3, 2, 3, 4, 5, 3, 5, 2, 0, 4, 3, 1, 2, 5, 0, 1, 5, 0, 5, 4];
@@ -313,10 +366,10 @@ const rampGeo = (() => { // a wedge in a 2 x 2 cell, rising toward +z from 0 to 
 })();
 const rampStripe = canvasTex(32, 32, (g) => { g.fillStyle = '#fff'; g.fillRect(0, 0, 32, 32); g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, 0, 32, 4); g.fillRect(0, 16, 32, 4); });
 function makeItemMesh(it) {
-  if (it.t === 'block') return new THREE.Mesh(boxG(G, 2, G), blockMat(it.c));
+  if (it.t === 'block') return new THREE.Mesh(blockGeo, blockMat(it.c));
   if (it.t === 'ramp') { const m = new THREE.Mesh(rampGeo, new THREE.MeshLambertMaterial({ color: it.c, flatShading: true })); return m; }
-  if (it.t === 'tramp') { const g = new THREE.Group(); const fr = new THREE.Mesh(cylG(0.95, 0.95, 0.5, 16), lam('#333')); fr.position.y = 0.25; g.add(fr); const mat = new THREE.Mesh(cylG(0.85, 0.85, 0.06, 16), lam(it.c)); mat.position.y = 0.53; g.add(mat); return g; }
-  if (it.t === 'palm') { const g = new THREE.Group(); palm(g, 0.8); return g; }
+  if (it.t === 'tramp') { const g = new THREE.Group(); const fr = new THREE.Mesh(cylG(0.95, 0.95, 0.5, 16), lam('#333')); fr.position.y = 0.25; g.add(fr); const mat = new THREE.Mesh(cylG(0.85, 0.85, 0.06, 16), lam(it.c)); mat.position.y = 0.53; g.add(mat); return mergeGroup(g); }
+  if (it.t === 'palm') { const g = new THREE.Group(); palm(g, 0.8); return mergeGroup(g); }
   if (it.t === 'silly') { const s = makeSilly(it.c); s.g.scale.setScalar(0.85); it.s = s; return s.g; }
   return new THREE.Group();
 }
@@ -635,7 +688,9 @@ function update(dt, now) {
   for (const b of balls) updateBall(b, dt);
   // inside the beach house
   if (discoT > 0) discoT -= dt;
-  if (inRoom(P.x, P.z)) roomUpdate(dt); else if (hemi.intensity !== 1.1) { hemi.intensity = 1.1; roomLights.forEach((l) => (l.intensity = 0)); }
+  const inside = inRoom(P.x, P.z);
+  if (inside !== showingInside) showSide(inside);
+  if (inside) roomUpdate(dt); else if (hemi.intensity !== 1.1) { hemi.intensity = 1.1; hemi.color.set('#ffffff'); roomLights.forEach((m) => (m.visible = false)); }
   // confetti
   for (let k = bits.length - 1; k >= 0; k--) { const b = bits[k]; b.vy -= 18 * dt; b.m.position.x += b.vx * dt; b.m.position.y += b.vy * dt; b.m.position.z += b.vz * dt; b.m.rotation.x += dt * 8; b.life -= dt; if (b.life <= 0) { scene.remove(b.m); bits.splice(k, 1); } }
   sea.material.emissiveIntensity = 0.22 + Math.sin(T * 0.8) * 0.06;
@@ -757,8 +812,11 @@ function roomUpdate(dt) {
   // disco button
   const bd = Math.hypot(P.x - (IX + 11), P.z - (IZ + 7.5)); if (bd < 1.1 && P.y < 0.6 && discoT <= 0) { discoT = 14; sfx.boing(); toast('DISCO!', 2); }
   ballPit.btn.position.y = bd < 1.1 ? 0.08 : 0.18;
-  if (discoT > 0) { discoBall.rotation.y += dt * 2; roomLights.forEach((l, k) => { l.intensity = 30 * (0.5 + 0.5 * Math.sin(T * 6 + k * 1.7)); l.color.setHSL((T * 0.3 + k * 0.25) % 1, 0.9, 0.55); }); hemi.intensity = 0.6; }
-  else { roomLights.forEach((l) => (l.intensity = 0)); hemi.intensity = 1.1; }
+  if (discoT > 0) {
+    discoBall.rotation.y += dt * 2; discoBall.material.emissive.setHSL((T * 0.5) % 1, 0.9, 0.4);
+    roomLights.forEach((m, k) => { m.visible = true; m.position.x = IX + Math.sin(T * 1.3 + k * 1.1) * 9; m.position.z = IZ + Math.cos(T * 0.9 + k * 1.7) * 7; m.material.color.setHSL((T * 0.4 + k / 6) % 1, 0.95, 0.6); });
+    hemi.intensity = 0.75; hemi.color.setHSL((T * 0.3) % 1, 0.6, 0.85);
+  } else if (roomLights[0].visible) { roomLights.forEach((m) => (m.visible = false)); hemi.intensity = 1.1; hemi.color.set('#ffffff'); discoBall.material.emissive.set('#555'); }
   // ball pit: balls jiggle and get pushed around
   const inPit = P.x > ballPit.x0 && P.x < ballPit.x1 && P.z > ballPit.z0 && P.z < ballPit.z1;
   ballPit.pos.forEach((p, k) => {
@@ -786,8 +844,16 @@ function updateCamera(dt) {
   scene.fog.near = inside ? 30 : 90; scene.fog.far = inside ? 110 : 260;
 }
 camera.position.set(P.x + 10, 6, P.z);
+const perf = { t: 0, n: 0, slow: 0, fast: 0 };
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = now - last; const dt = Math.min(0.05, raw / 1000); last = now;
+  if (started && raw < 500 && !document.hidden) {
+    perf.t += raw; perf.n++; if (raw > 24) perf.slow++;
+    if (perf.t > 2500) {
+      if (perf.slow / perf.n > 0.3 && qi < QSTEPS.length - 1) { qi++; renderer.setPixelRatio(QSTEPS[qi]); resize(); }
+      perf.t = perf.n = perf.slow = 0;
+    }
+  }
   if (started) update(dt, now); else { T += dt; for (const q of sillies) animSilly(q.s, dt, false, 0, 0); kid.root.position.set(P.x, P.y, P.z); }
   updateCamera(dt);
   renderer.render(scene, camera);
