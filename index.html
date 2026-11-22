@@ -110,7 +110,7 @@ const HOW = {
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
   puzzle: 'Hold your hand on a piece to pick it up, then carry it to where it goes!',
   marble: 'Tip your arms like an airplane to steer your marble. Flap to go fast. Jump to hop. Pop bubbles and race into the funnel!',
-  dots: 'Connect dots of the same color! Make a square to pop them all.',
+  dots: 'Open hand to point, squeeze into a fist to grab a dot, drag through the same color, open to let go. Make a square to pop them all!',
   band: 'One hand bangs the drums. The other hand plays the xylophone, high or low. Bounce for a BOOM. Jump for a crash!'
 };
 function setGame(g){
@@ -358,8 +358,12 @@ function drawPreview(now){
   if(mode === 'front'){ pctx.translate(w,0); pctx.scale(-1,1); }
   if(video.readyState >= 2) pctx.drawImage(video,0,0,w,h);
   pctx.restore();
-  const fresh = now - lastPoseT < 600;
-  if(sig.pts && fresh){
+  const handMode = game === 'dots' && state === 'play' && hnd.lm;
+  const fresh = handMode ? now - hnd.lastT < 600 : now - lastPoseT < 600;
+  if(handMode && fresh){
+    const k = w/vw;
+    for(const h of hnd.list){ pctx.fillStyle = h.closed ? '#ffd23b' : '#7dff9a'; pctx.beginPath(); pctx.arc(h.x*k, h.y*k, h.closed ? 12 : 9, 0, 7); pctx.fill(); }
+  } else if(sig.pts && fresh){
     const k = w/vw, P = sig.pts;
     const line = (a,b)=>{ pctx.beginPath(); pctx.moveTo(a.x*k,a.y*k); pctx.lineTo(b.x*k,b.y*k); pctx.stroke(); };
     pctx.lineWidth = 4; pctx.lineCap = 'round';
@@ -857,7 +861,6 @@ function draw(now){
     drawMarbleHUD(t);
   } else if(game === 'dots' && state === 'play'){
     drawDotsBG(t);
-    drawGuy(t);
     drawDots(t);
     drawHands(t);
   } else if(game === 'puzzle' && state === 'play'){
@@ -1018,6 +1021,12 @@ function drawHands(t){
     if(h.x < -100) continue;
     ctx.save(); ctx.translate(h.x, h.y);
     ctx.fillStyle = h.c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S;
+    if(h.closed){
+      // a squeezed fist: round ball with knuckle bumps
+      for(let i=0;i<4;i++){ ctx.beginPath(); ctx.arc((i-1.5)*15*S, -26*S, 10*S, 0, 7); ctx.fill(); ctx.stroke(); }
+      ctx.beginPath(); ctx.arc(0, 0, 32*S, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.restore(); continue;
+    }
     for(let i=0;i<4;i++){
       const a = -Math.PI/2 + (i-1.5)*0.38;
       ctx.beginPath(); ctx.ellipse(Math.cos(a)*34*S, Math.sin(a)*34*S, 9*S, 17*S, a+Math.PI/2, 0, 7); ctx.fill(); ctx.stroke();
@@ -2518,8 +2527,8 @@ const dots = { lv:0, stars:0, cols:5, rows:5, nCol:3, grid:[], cs:60, ox:0, oy:0
 
 function dotsLayout(){
   const land = W > H*1.05;
-  const x0 = land ? W*0.2 : W*0.04, x1 = land ? W*0.97 : W*0.96;
-  const y0 = land ? H*0.17 : H*0.15, y1 = land ? H*0.97 : H*0.8;
+  const x0 = land ? W*0.05 : W*0.04, x1 = land ? W*0.95 : W*0.96;
+  const y0 = land ? H*0.21 : H*0.17, y1 = land ? H*0.97 : H*0.92;
   dots.cs = Math.min((x1-x0)/dots.cols, (y1-y0)/dots.rows);
   dots.ox = (x0+x1)/2 - dots.cs*dots.cols/2;
   dots.oy = (y0+y1)/2 - dots.cs*dots.rows/2;
@@ -2563,7 +2572,9 @@ function startDots(){
   dotsLayout();
   $('#msg').style.color = '#ff6b9a';
   const names = dots.goals.map(g=>DOT_COLS[g.k].name.toLowerCase());
-  if(dots.lv === 0) say('Connect the dots! Find two the same color.', true);
+  if(input === 'camera') loadHands();
+  if(dots.lv === 0 && input === 'camera') say('Open your hand to find a dot. Squeeze to grab it, then pull to the same color!', true);
+  else if(dots.lv === 0) say('Connect the dots! Find two the same color.', true);
   else if(dots.squareLv) say('Make a square to pop them all!', true);
   else say('Get the ' + listWords(names) + ' dots!', true);
   dMusicStart();
@@ -2683,6 +2694,80 @@ addEventListener('pointermove', e=>{ if(dots.dragging) dotsTraceTo(e.clientX, e.
 addEventListener('pointerup', ()=>{ if(dots.dragging) dotsRelease(); });
 addEventListener('pointercancel', ()=>{ if(dots.dragging) dotsCancel(); });
 
+/* hand tracking for Silly Dots: open hand hovers, squeeze into a fist to grab and drag */
+const hnd = { lm:null, loading:false, lastVT:-1, lastT:0, list:[], st:[{},{}] };
+async function loadHands(){
+  if(hnd.lm || hnd.loading) return;
+  hnd.loading = true;
+  try{
+    const { HandLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    const opts = (delegate)=>({
+      baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate },
+      runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:0.4, minHandPresenceConfidence:0.4, minTrackingConfidence:0.4
+    });
+    try { hnd.lm = await HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+    catch(e){ hnd.lm = await HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+  }catch(e){ console.error(e); }
+  hnd.loading = false;
+}
+function readHands(now){
+  if(!hnd.lm || video.readyState < 2 || video.currentTime === hnd.lastVT) return;
+  hnd.lastVT = video.currentTime;
+  let r;
+  try { r = hnd.lm.detectForVideo(video, now); } catch(e){ return; }
+  const L = r && r.landmarks;
+  if(!L || !L.length){ hnd.list = []; return; }
+  const used = new Set(), list = [];
+  L.forEach((lm, i)=>{
+    const lab = r.handednesses && r.handednesses[i] && r.handednesses[i][0] ? r.handednesses[i][0].categoryName : 'Right';
+    let id = lab === 'Left' ? 0 : 1;
+    if(used.has(id)) id = 1 - id;
+    used.add(id);
+    const P = k => ({ x:(mode === 'front' ? 1 - lm[k].x : lm[k].x)*vw, y:lm[k].y*vh });
+    const w = P(0), palm = [0,5,9,13,17].map(P);
+    const cx = palm.reduce((a,p)=>a + p.x, 0)/5, cy = palm.reduce((a,p)=>a + p.y, 0)/5;
+    const size = Math.hypot(P(9).x - w.x, P(9).y - w.y) || 1;
+    const reach = [8,12,16,20].reduce((a,k)=>{ const p = P(k); return a + Math.hypot(p.x - w.x, p.y - w.y); }, 0)/4/size;
+    const st = hnd.st[id];
+    if(st.x == null || now - (st.t || 0) > 400){ st.x = cx; st.y = cy; st.closed = false; }
+    st.x += (cx - st.x)*0.55; st.y += (cy - st.y)*0.55; st.t = now;
+    // hysteresis so a half-curled hand doesn't flicker
+    if(st.closed && reach > 1.55) st.closed = false;
+    else if(!st.closed && reach < 1.3) st.closed = true;
+    list.push({ id, x:st.x, y:st.y, closed:st.closed });
+  });
+  hnd.list = list; hnd.lastT = now;
+}
+function dotsEndCam(){ if(dots.path.length >= 2) dotsRelease(); else dotsCancel(); }
+function dotsHandInput(now){
+  readHands(now);
+  if(now - hnd.lastT > 500){
+    if(dots.camHand >= 0) dotsEndCam();
+    if(now - hnd.lastT > 1500){
+      if(!msgUntil) $('#msg').textContent = 'Show me your hands!';
+      if(now - lastLostSay > 9000){ say('Show me your hands!'); lastLostSay = now; }
+    }
+    return;
+  }
+  if($('#msg').textContent === 'Show me your hands!' || $('#msg').textContent === 'I can\'t see you!') setMsg('');
+  let held = false;
+  for(const h of hnd.list){
+    const s2 = toScreen(h);
+    dots.hands.push({ ...s2, c: h.id ? '#ff6b9a' : '#4dd2ff', side: h.id ? 1 : -1, prog:0, closed:h.closed });
+    if(dots.camHand === h.id){
+      held = true;
+      if(h.closed) dotsTraceTo(s2.x, s2.y);
+      else dotsEndCam();
+    } else if(dots.camHand < 0 && !dots.dragging && h.closed){
+      // a squeezed hand that touches a dot grabs it
+      const d = dotAt(s2.x, s2.y, 0.55);
+      if(d){ dotsBegin(d, s2.x, s2.y); dots.camHand = h.id; held = true; }
+    }
+  }
+  if(dots.camHand >= 0 && !held) dotsEndCam();
+}
 function updateDots(dt, now, fresh){
   const t = now/1000;
   dotsLayout();
@@ -2712,7 +2797,9 @@ function updateDots(dt, now, fresh){
     return;
   }
 
-  if(input === 'camera' && fresh && sig.pts){
+  if(input === 'camera' && hnd.lm){
+    dotsHandInput(now);
+  } else if(input === 'camera' && fresh && sig.pts){
     const hs = [toScreen(sig.pts.L.w), toScreen(sig.pts.R.w)];
     dots.dirL = sig.armDirL; dots.dirR = sig.armDirR;
     if(dots.camHand < 0 && !dots.dragging){
@@ -2825,7 +2912,7 @@ function drawDots(t){
 
   // goals: one dot per color with how many are left
   const gr = Math.max(18, 30*u), gap = gr*3.1, n = dots.goals.length;
-  const gy = Math.max(gr + 14*u, dots.oy*0.48), gx0 = dots.ox + cs*dots.cols/2 - (n-1)*gap/2;
+  const gy = Math.max(gr + 14*u, 58 + gr + 9*u, dots.oy*0.48), gx0 = dots.ox + cs*dots.cols/2 - (n-1)*gap/2;
   dots.goals.forEach((g, i)=>{
     const x = gx0 + i*gap, done = g.got >= g.need, k = 1 + g.bump*0.25;
     ctx.save(); ctx.translate(x, gy); ctx.scale(k, k);
@@ -3000,7 +3087,7 @@ setGame(game);
 let last = performance.now();
 function frame(now){
   const dt = Math.min(0.05, (now-last)/1000); last = now;
-  if(input === 'camera') readPose(now);
+  if(input === 'camera' && !(game === 'dots' && state === 'play' && hnd.lm)) readPose(now);
   update(dt, now);
   draw(now);
   drawPreview(now);
