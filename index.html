@@ -1800,6 +1800,43 @@ function drawMeMeter(t){
 }
 
 /* ---------- MARBLE RACE ---------- */
+
+// the marble race stays quiet: no talking, just sounds and a chill beat
+function mrSay(){}
+const CHILL = { bpm:84, on:false, next:0, step:0 };
+const CH_PROG = [
+  { b:65.41, n:[261.6, 329.6, 392.0, 493.9] },  // Cmaj7
+  { b:55.00, n:[220.0, 261.6, 329.6, 392.0] },  // Am7
+  { b:43.65, n:[174.6, 220.0, 261.6, 329.6] },  // Fmaj7
+  { b:49.00, n:[196.0, 246.9, 293.7, 329.6] }   // G6
+];
+function chillPad(at, f, dur, vol){
+  const o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter();
+  o.type = 'triangle'; o.frequency.value = f; o.detune.value = rnd(-6, 6);
+  lp.type = 'lowpass'; lp.frequency.value = 900;
+  g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(vol, at + 0.5); g.gain.linearRampToValueAtTime(0.0001, at + dur);
+  o.connect(lp).connect(g).connect(ac.destination); o.start(at); o.stop(at + dur + 0.05);
+}
+function chillStart(){
+  if(!ac) return;
+  CHILL.on = true;
+  if(CHILL.next < ac.currentTime){ CHILL.next = ac.currentTime + 0.1; CHILL.step = 0; }
+}
+setInterval(()=>{
+  if(!(state === 'play' && game === 'marble' && CHILL.on && ac)) return;
+  const st = 60/CHILL.bpm/4;
+  if(CHILL.next < ac.currentTime - 0.5){ CHILL.next = ac.currentTime + 0.05; CHILL.step = 0; }
+  while(CHILL.next < ac.currentTime + 0.15){
+    const at = CHILL.next, s = CHILL.step % 16, ch = CH_PROG[Math.floor(CHILL.step/16) % 4];
+    if(s === 0) ch.n.forEach(f=>chillPad(at, f, st*16, 0.03));
+    if(s === 0 || s === 10) oscAt(at, ch.b*2, ch.b*2, st*5, 'sine', 0.16);
+    if(s === 0 || s === 7 || s === 10) inst.kick(at, 0.2);
+    if(s === 4 || s === 12) noiseAt(at, 0.09, 0.045, 'bandpass', 1800);
+    if(s % 2 === 0) inst.hat(at, s % 4 === 2 ? 0.022 : 0.01);
+    if((s === 3 || s === 6 || s === 14) && Math.random() < 0.6) oscAt(at, ch.n[Math.floor(Math.random()*4)]*2, ch.n[0]*2, st*3, 'sine', 0.035);
+    CHILL.next += st; CHILL.step++;
+  }
+}, 25);
 const MSEG = 200, ROADW = 1100, CAMH = 900, MRAD = 165, BRAD = 110, LAT = 0.85, DRAWN = 150;
 const CAMD = 1/Math.tan(50*Math.PI/180);
 const MTHEMES = [
@@ -1819,22 +1856,39 @@ function mrBuild(level){
   const segs = [], bubbles = [], pads = [], warn = [];
   const hard = Math.min(level, 4);
   let y = 0;
-  function add(n, curve, hill, rails){
+  function add(n, curve, hill, rails = true, tag = null){
     const y0 = y;
     for(let i=0;i<n;i++){
       const u = i/n;
-      segs.push({ curve: curve*Math.sin(u*Math.PI), y: y0 + hill*(1-Math.cos(u*Math.PI))/2, rails });
+      segs.push({ curve: curve*Math.sin(u*Math.PI), y: y0 + hill*(1-Math.cos(u*Math.PI))/2, rails, tag });
     }
     y = y0 + hill;
   }
-  add(22, 0, 0, true);
-  const pieces = 12 + hard*2;
+  const side = ()=>Math.random() < 0.5 ? -1 : 1;
+  const maybeHill = (amt)=>Math.random() < 0.4 ? side()*rnd(amt*0.5, amt) : 0;
+  // a wacky menu of track pieces, picked at random
+  const PIECES = {
+    curve(){ add(Math.floor(rnd(24,38)), side()*rnd(2.8, 4.2), maybeHill(1800)); },
+    scurve(){ const d = side(), c = rnd(3.2, 4.6), n = Math.floor(rnd(20,28)); add(n, d*c, maybeHill(1200)); add(n, -d*c, maybeHill(1200)); },
+    wiggle(){ let d = side(); const k = 4 + Math.floor(Math.random()*3); for(let j=0;j<k;j++){ add(Math.floor(rnd(11,15)), d*rnd(3, 4.5), 0); d = -d; } },
+    hairpin(){ add(Math.floor(rnd(40,52)), side()*rnd(4.8, 5.6), 0); },
+    drop(){ add(Math.floor(rnd(14,20)), 0, 500); add(Math.floor(rnd(26,34)), side()*rnd(0, 3), -rnd(3000, 4200)); },
+    camel(){ const h = rnd(1800, 2800); add(Math.floor(rnd(18,24)), 0, h); add(Math.floor(rnd(18,24)), 0, -h); },
+    bumps(){ const k = 4 + Math.floor(Math.random()*3), c = side()*rnd(0, 2.5); for(let j=0;j<k;j++){ add(7, c, 450); add(7, c, -450); } },
+    ramp(){ add(10, 0, 0); add(7, 0, 550, true, 'ramp'); segs[segs.length-1].launch = true; add(4, 0, -550, true); add(16, 0, 0); },
+    spiral(){ const d = side(); add(Math.floor(rnd(50,64)), d*rnd(4, 5), -rnd(2500, 3500)); }
+  };
+  const bag = ['curve','scurve','wiggle','hairpin','drop','camel','bumps','ramp','spiral'];
+  add(22, 0, 0);
+  const pieces = 14 + hard*2;
+  let last = '';
   for(let k=0;k<pieces;k++){
-    if(level > 0 && k % 4 === 2){ warn.push(segs.length); add(Math.floor(rnd(30,42)), 0, 0, false); continue; }
-    const n = Math.floor(rnd(35, 60));
-    const curve = Math.random() < 0.2 ? 0 : (Math.random()<0.5?-1:1)*rnd(1.2, 2.2 + hard*0.5);
-    const hill = Math.random() < 0.45 ? (Math.random()<0.5?-1:1)*rnd(600, 1400 + hard*300) : 0;
-    add(n, curve, hill, true);
+    if(level > 0 && k % 5 === 3){ warn.push(segs.length); add(Math.floor(rnd(26,34)), 0, 0, false); continue; }
+    let pick; do { pick = bag[Math.floor(Math.random()*bag.length)]; } while(pick === last);
+    // first race: make sure the fun stuff shows up early
+    if(level === 0 && k < 4) pick = ['scurve','ramp','wiggle','drop'][k];
+    last = pick; PIECES[pick]();
+    add(4, 0, 0);
   }
   add(30, 0, 0, true);
   const finishIdx = segs.length;
@@ -1851,7 +1905,7 @@ function mrBuild(level){
     i += len*3 + Math.floor(rnd(12, 22));
   }
   for(let i=60; i<finishIdx-30; i += Math.floor(rnd(55, 85))){
-    if(segs[i].rails && segs[i+4].rails) pads.push({ i, x:rnd(-0.45, 0.45) });
+    if(segs[i].rails && segs[i+4].rails && !segs[i].tag && !segs[i+4].tag) pads.push({ i, x:rnd(-0.45, 0.45) });
   }
   return { segs, bubbles, pads, warn, finishIdx, finishZ:finishIdx*MSEG };
 }
@@ -1875,7 +1929,7 @@ function mrStart(){
     finishOrder:[], place:4, lastPlace:4, phase:'count', phaseT:0, countStep:-1, got:0, fn:null, skyX:0,
     lastTip:performance.now(), warned:new Set() });
   mr.rivals = RIVALS.map((r,i)=>({ ...r, z:[3,3,7][i]*MSEG, x:[-0.55,0.55,0][i], lane:[-0.5,0.5,0][i], speed:0, roll:rnd(0,1), done:false }));
-  mrSound(true);
+  mrSound(true); chillStart();
   $('#msg').style.color = '#fff'; setMsg('');
 }
 
@@ -1914,7 +1968,7 @@ function updateMarble(dt, now, fresh){
     pump = keys['arrowup'] ? 4 : 0;
   } else if(input === 'camera' && now - lastPoseT > 1500){
     if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
-    if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+    if(now - lastLostSay > 9000){ mrSay('Where did you go?'); lastLostSay = now; }
   }
   mr.steer = lerp(mr.steer, steer, 1-Math.exp(-8*dt));
   mr.bump = Math.max(0, mr.bump - dt);
@@ -1924,9 +1978,9 @@ function updateMarble(dt, now, fresh){
     if(step !== mr.countStep){
       mr.countStep = step;
       const th = MTHEMES[mr.level % MTHEMES.length];
-      if(step === 0) say(th.name + ' race! Get ready!', true);
-      else if(step < 4){ say(String(4-step), true); tone(440,440,0.25,'triangle',0.25); }
-      else { say('Go!', true); tone(880,880,0.45,'triangle',0.3); mr.phase = 'race'; mr.phaseT = 0; }
+      if(step === 0) mrSay(th.name + ' race! Get ready!', true);
+      else if(step < 4){ mrSay(String(4-step), true); tone(440,440,0.25,'triangle',0.25); }
+      else { mrSay('Go!', true); tone(880,880,0.45,'triangle',0.3); mr.phase = 'race'; mr.phaseT = 0; }
     }
   } else if(mr.phase === 'race'){
     const si = clamp(Math.floor(mr.pos/MSEG), 0, mr.segs.length-2), seg = mr.segs[si];
@@ -1941,23 +1995,23 @@ function updateMarble(dt, now, fresh){
 
     if(mr.fall > 0){
       mr.fall -= dt; mr.fallY += 2500*dt*(1.3 - mr.fall);
-      if(mr.fall <= 0){ mr.fall = 0; mr.fallY = 0; mr.x = 0; mr.speed = 1400; sfx.ready(); say('Back on the track!', true); }
+      if(mr.fall <= 0){ mr.fall = 0; mr.fallY = 0; mr.x = 0; mr.speed = 1400; sfx.ready(); mrSay('Back on the track!', true); }
     } else {
       const sp = mr.speed/2400;
       mr.x += mr.steer*1.7*dt*(0.6 + 0.4*sp);
-      mr.x -= seg.curve*0.15*sp*sp*dt;
+      mr.x -= seg.curve*0.07*sp*sp*dt;
       if(Math.abs(mr.x) > 1){
         if(seg.rails){
           mr.x = Math.sign(mr.x);
           if(now - mr.lastBump > 600){
             mr.lastBump = now; mr.speed *= 0.82; mr.bump = 0.35; sfx.boing();
-            if(now - lastSpeak > 4000) say(['Boing!','Bonk!','Oopsie!'][Math.floor(Math.random()*3)]);
+            if(now - lastSpeak > 4000) mrSay(['Boing!','Bonk!','Oopsie!'][Math.floor(Math.random()*3)]);
           }
         } else if(mr.jumpY > 0){
           mr.x = clamp(mr.x, -1.1, 1.1);
         } else if(Math.abs(mr.x) > 1.1){
           mr.fall = 1.3; mr.fallY = 0; guy.spinT = 0.8;
-          tone(800,120,0.9,'sine',0.25); say('Whoa! Whoops!', true);
+          tone(800,120,0.9,'sine',0.25); mrSay('Whoa! Whoops!', true);
         }
       }
     }
@@ -1965,7 +2019,12 @@ function updateMarble(dt, now, fresh){
       mr.jumpV -= 4500*dt; mr.jumpY += mr.jumpV*dt;
       if(mr.jumpY <= 0){ mr.jumpY = 0; mr.jumpV = 0; tone(200,90,0.12,'sine',0.25); }
     }
+    const prevSi = si;
     mr.pos += mr.speed*dt;
+    const nowSeg = mr.segs[clamp(Math.floor(mr.pos/MSEG), 0, mr.segs.length-1)];
+    if(nowSeg.launch && Math.floor(mr.pos/MSEG) !== prevSi && mr.jumpY <= 0 && mr.fall <= 0){
+      mr.jumpV = 1700 + mr.speed*0.25; mr.jumpY = 0.01; tone(300,1400,0.5,'sine',0.25); mrSay('Wheee!', true); guy.spinT = 0.8;
+    }
     mr.roll = (mr.roll + mr.speed*dt/(Math.PI*2*MRAD)) % 1;
 
     // bubbles
@@ -1978,20 +2037,20 @@ function updateMarble(dt, now, fresh){
           const a = Math.random()*Math.PI*2, v = rnd(120,360)*S;
           bits.push({ x:x + Math.cos(a)*r*0.8, y:y + Math.sin(a)*r*0.8, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.4,0.8), c:b.col.c, s:rnd(5,9)*S, rot:0, vr:rnd(-8,8), g:0.3 });
         }
-        if(mr.got % 10 === 0){ sfx.yay(); say('Ten bubbles! Hooray!', true); guy.spinT = 0.8; }
+        if(mr.got % 10 === 0){ sfx.yay(); mrSay('Ten bubbles! Hooray!', true); guy.spinT = 0.8; }
       }
     }
     // zoom pads
     for(const p of mr.pads){
       if(si >= p.i && si <= p.i+3 && Math.abs(p.x - mr.x) < 0.3 && mr.jumpY < 30 && mr.boost < 1){
         mr.boost = 1.4; tone(300,1200,0.4,'sawtooth',0.1);
-        if(now - mr.lastZoom > 3000){ say('Zoom!', true); mr.lastZoom = now; }
+        if(now - mr.lastZoom > 3000){ mrSay('Zoom!', true); mr.lastZoom = now; }
       }
     }
     // warn before a part with no walls
     for(const w of mr.warn){
       if(!mr.warned.has(w) && w*MSEG - mr.pos < 14*MSEG && w*MSEG > mr.pos){
-        mr.warned.add(w); say('No walls here! Stay in the middle!', true); flash('Careful!', 1.5); $('#msg').style.color = '#fff';
+        mr.warned.add(w); mrSay('No walls here! Stay in the middle!', true); flash('Careful!', 1.5); $('#msg').style.color = '#fff';
       }
     }
     // rivals: stay close so it's always a race, then he can win at the end
@@ -2014,12 +2073,12 @@ function updateMarble(dt, now, fresh){
     // place callouts
     const place = mrPlace();
     if(place < mr.lastPlace && now - mr.lastPlaceSay > 2500){
-      say(place === 1 ? 'You\'re in first!' : 'You passed one!', true); mr.lastPlaceSay = now; guy.spinT = 0.8;
+      mrSay(place === 1 ? 'You\'re in first!' : 'You passed one!', true); mr.lastPlaceSay = now; guy.spinT = 0.8;
     } else if(place > mr.lastPlace && now - mr.lastBehindSay > 9000 && now - lastSpeak > 3000){
-      say('Flap flap flap! Go fast!'); mr.lastBehindSay = now;
+      mrSay('Flap flap flap! Go fast!'); mr.lastBehindSay = now;
     }
     mr.lastPlace = place; mr.place = place;
-    if(now - mr.lastTip > 14000 && now - lastSpeak > 6000){ say(MR_TIPS[mr.tipI++ % MR_TIPS.length]); mr.lastTip = now; }
+    if(now - mr.lastTip > 14000 && now - lastSpeak > 6000){ mrSay(MR_TIPS[mr.tipI++ % MR_TIPS.length]); mr.lastTip = now; }
 
     // finish: into the funnel
     if(mr.pos >= mr.finishZ){
@@ -2028,7 +2087,7 @@ function updateMarble(dt, now, fresh){
       const ms = [{ c:'#ff3b52', c2:'#ffc42e', r:1, a:Math.PI*0.5, delay:0, player:true, half:0 }];
       mr.rivals.filter(r=>!r.done).forEach((r,k)=>ms.push({ c:r.c, c2:'#fff', r:1, a:Math.PI*0.5, delay:clamp((mr.finishZ - r.z)/Math.max(r.speed,1000), 0.6, 3) + k*0.3, player:false }));
       mr.fn = { ms };
-      sfx.yay(); say('Into the funnel! Wheee!', true);
+      sfx.yay(); mrSay('Into the funnel! Wheee!', true);
     }
   } else if(mr.phase === 'funnel'){
     for(const m of mr.fn.ms){
@@ -2046,7 +2105,7 @@ function updateMarble(dt, now, fresh){
           tone(1500,300,0.25,'sine',0.35); tone(220,90,0.3,'sine',0.4,0.1);
           mr.phase = 'done'; mr.phaseT = 0; guy.spinT = 0.8;
           const msg = mr.place === 1 ? 'You won! First place! Hooray!' : mr.place === 2 ? 'Second place! Great racing!' : 'You made it in the hole! Great job!';
-          say(msg, true); sfx.yay();
+          mrSay(msg, true); sfx.yay();
           flash(mr.place === 1 ? 'You won!' : 'Hooray!', 4); $('#msg').style.color = '#fff';
           for(let i=0;i<140;i++){
             const col = COLORS[i%COLORS.length].c;
@@ -2058,15 +2117,15 @@ function updateMarble(dt, now, fresh){
   } else if(mr.phase === 'done'){
     const e2 = Math.sin(t*10)*0.6 + 0.8;
     if(!(input === 'camera' && fresh)){ mr.dirL = { x:-Math.cos(e2), y:-Math.sin(e2) }; mr.dirR = { x:Math.cos(e2), y:-Math.sin(e2) }; }
-    if(mr.phaseT > 3.5 && mr.phaseT - dt <= 3.5) say('Ready for another race?', true);
+    if(mr.phaseT > 3.5 && mr.phaseT - dt <= 3.5) mrSay('Ready for another race?', true);
     if(mr.phaseT > 7){ mr.level++; mrStart(); }
   }
 
   // rolling sound
   if(mr.snd && ac){
     let v = 0, f = 200;
-    if(mr.phase === 'race' && mr.jumpY <= 0 && mr.fall <= 0){ v = 0.04 + Math.min(mr.speed, 5000)/5000*0.12; f = 150 + mr.speed*0.12; }
-    if(mr.phase === 'funnel'){ const m = mr.fn.ms[0]; if(!m.gone){ v = 0.1; f = 300 + (1-m.r)*900; } }
+    if(mr.phase === 'race' && mr.jumpY <= 0 && mr.fall <= 0){ v = 0.02 + Math.min(mr.speed, 5000)/5000*0.06; f = 150 + mr.speed*0.12; }
+    if(mr.phase === 'funnel'){ const m = mr.fn.ms[0]; if(!m.gone){ v = 0.05; f = 300 + (1-m.r)*900; } }
     mr.snd.g.gain.setTargetAtTime(v, ac.currentTime, 0.08);
     mr.snd.f.frequency.setTargetAtTime(f, ac.currentTime, 0.08);
   }
@@ -2149,7 +2208,8 @@ function drawMarble(t){
     return { wx:lerp(pts[n].wx, pts[n+1].wx, u), wy:lerp(pts[n].wy, pts[n+1].wy, u) };
   };
   const pr = at(pz);
-  const camY = pr.wy + CAMH, camX = pr.wx + mr.x*ROADW*LAT*0.6;
+  let hump = pr.wy; for(const q of pts) if(q.wz > camZ && q.wz < pz) hump = Math.max(hump, q.wy);
+  const camY = lerp(pr.wy, hump, 0.9) + CAMH, camX = pr.wx + mr.x*ROADW*LAT*0.6;
   const P = (wx, wy, wz)=>{ const cz = wz - camZ; if(cz < 20) return null; const sc = CAMD/cz;
     return { x:W/2 + sc*(wx-camX)*Kx, y:HZ + sc*(camY-wy)*K, w:sc*ROADW*Kx, sc }; };
 
@@ -2171,7 +2231,7 @@ function drawMarble(t){
     const r1 = p1.w*0.1, r2 = p2.w*0.1;
     const rc = s.rails ? th.stripe[Math.floor(i/3) % th.stripe.length] : (i % 2 ? '#ff3b4e' : '#ffffff');
     quad(p1.x-p1.w-r1, p1.x+p1.w+r1, p1.y, p2.x-p2.w-r2, p2.x+p2.w+r2, p2.y, rc);
-    quad(p1.x-p1.w, p1.x+p1.w, p1.y, p2.x-p2.w, p2.x+p2.w, p2.y, th.road[alt]);
+    quad(p1.x-p1.w, p1.x+p1.w, p1.y, p2.x-p2.w, p2.x+p2.w, p2.y, s.tag === 'ramp' ? (i % 2 ? '#ffd23b' : '#ff8a2b') : th.road[alt]);
     const pad = padAt.get(i);
     if(pad){
       const c1 = p1.x + pad.x*p1.w*LAT, c2 = p2.x + pad.x*p2.w*LAT, h1 = p1.w*0.18, h2 = p2.w*0.18;
