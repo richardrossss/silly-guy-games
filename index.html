@@ -12,7 +12,7 @@ canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-ac
 #hud{position:fixed;left:14px;top:14px;display:none;gap:8px;z-index:6;opacity:.3;transition:opacity .2s}
 #hud:hover{opacity:1}
 .btn{font:inherit;font-weight:800;font-size:16px;border:0;border-radius:999px;padding:8px 16px;background:#fff;color:#223;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}
-#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;background:rgba(30,80,150,.55);color:#fff;text-align:center;z-index:10;padding:20px}
+#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:safe center;overflow-y:auto;flex-direction:column;gap:18px;background:rgba(30,80,150,.55);color:#fff;text-align:center;z-index:10;padding:20px}
 #overlay h1{font-size:clamp(48px,9vw,96px);margin:0;line-height:.95;text-shadow:0 5px 0 #e5484d}
 #overlay p{font-size:22px;margin:0;max-width:700px;line-height:1.25}
 #overlay .small{font-size:16px;opacity:.9}
@@ -27,6 +27,29 @@ canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-ac
 .card.on{background:#fff;color:#223;border-color:#ffd84d}
 #msg{position:fixed;left:0;right:0;top:9%;text-align:center;font-size:clamp(36px,6vw,72px);font-weight:800;color:#fff;text-shadow:0 4px 0 rgba(0,0,0,.25);pointer-events:none;z-index:4;padding:0 20px}
 video{display:none}
+body.touch .desk{display:none!important}
+body:not(.touch) .tch{display:none!important}
+@media (max-width:760px), (max-height:560px){
+  #overlay{gap:10px;padding:12px}
+  #overlay h1{font-size:44px}
+  .card{min-width:120px;font-size:17px;padding:8px 12px;border-radius:18px}
+  .card .ic{font-size:40px}
+  #overlay p{font-size:17px}
+  .big{font-size:24px;padding:10px 30px}
+  #skinName{min-width:120px!important;font-size:19px!important}
+}
+@media (max-height:500px){
+  #overlay{gap:6px;padding:8px}
+  #overlay h1{font-size:30px;text-shadow:0 3px 0 #e5484d}
+  #games{gap:6px}
+  .card{min-width:0;font-size:13px;padding:5px 9px;border-width:3px}
+  .card .ic{font-size:26px}
+  #overlay p{font-size:14px}
+  #overlay .small{display:none}
+  .row{gap:8px}
+  .big{font-size:20px;padding:7px 28px}
+  #overlay .btn{font-size:14px;padding:5px 12px}
+}
 </style>
 </head>
 <body>
@@ -46,7 +69,7 @@ video{display:none}
 <div id="overlay">
   <h1>Silly Guy Games</h1>
   <div class="row" id="games">
-    <button class="card" data-game="me"><span class="ic">🕺</span>Be the Silly Guy</button>
+    <button class="card desk" data-game="me"><span class="ic">🕺</span>Be the Silly Guy</button>
     <button class="card" data-game="fly"><span class="ic">☁️</span>Silly Guy Fly</button>
     <button class="card" data-game="bubbles"><span class="ic">🫧</span>Bubble Pop</button>
     <button class="card" data-game="band"><span class="ic">🥁</span>Wiggle Band</button>
@@ -62,7 +85,7 @@ video{display:none}
     <span id="skinName" style="font-size:24px;font-weight:800;min-width:200px">Classic Red</span>
     <button class="btn" id="skinNext">▶</button>
   </div>
-  <div class="row">
+  <div class="row desk">
     <span style="font-size:20px;font-weight:800">Where's the camera?</span>
     <div class="seg">
       <button class="btn" id="segFront">In front of him</button>
@@ -70,11 +93,12 @@ video{display:none}
     </div>
   </div>
   <div class="row">
-    <button class="btn big" id="startCam">Start</button>
+    <button class="btn big desk" id="startCam">Start</button>
     <button class="btn" id="startKeys">Try with keyboard</button>
   </div>
   <div id="err"></div>
-  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color. M turns the Silly Dots music on or off.</p>
+  <p class="small tch">Tap a game, then Play. Turn the screen sideways for the biggest view.</p>
+  <p class="small desk">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color. M turns the Silly Dots music on or off.</p>
 </div>
 
 <script type="module">
@@ -96,6 +120,59 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 
+/* ---------- touch devices (iPad, phone): no camera, play with fingers ---------- */
+const TOUCH = /[?&]touch=1/.test(location.search) || (!/[?&]touch=0/.test(location.search) && matchMedia('(pointer: coarse)').matches);
+if(TOUCH) document.body.classList.add('touch');
+const HOW_TOUCH = {
+  fly: 'Tap to flap! Hold your finger down to glide and steer toward it. Two fingers do a loop!',
+  bubbles: 'Tap the bubbles to pop them! Listen for which color to pop.',
+  band: 'Tap the drums. Slide your finger up and down the colored bars. Tap the floor for a BOOM and the sky for a crash!',
+  puzzle: 'Drag each piece to where it goes in the picture!',
+  marble: 'Hold your finger on the left or right side to steer. Quick tap to hop. Two fingers to zoom!',
+  dots: 'Drag between dots of the same color. Make a square to pop them all!'
+};
+const ptrs = new Map(); let lastPtrType = TOUCH ? 'touch' : 'mouse';
+const playingTouch = ()=>state === 'play' && input === 'keys';
+addEventListener('pointerdown', e=>{
+  lastPtrType = e.pointerType;
+  if(!playingTouch() || e.target !== cv) return;
+  const p = { x:e.clientX, y:e.clientY, t0:performance.now(), moved:0, bar:-1 };
+  ptrs.set(e.pointerId, p); touchDown(p);
+});
+addEventListener('pointermove', e=>{
+  lastPtrType = e.pointerType;
+  const p = ptrs.get(e.pointerId); if(!p) return;
+  p.moved += Math.hypot(e.clientX - p.x, e.clientY - p.y); p.x = e.clientX; p.y = e.clientY;
+  if(playingTouch()) touchMove(p);
+});
+function ptrUp(e){ const p = ptrs.get(e.pointerId); ptrs.delete(e.pointerId); if(p && playingTouch()) touchUp(p); }
+addEventListener('pointerup', ptrUp); addEventListener('pointercancel', ptrUp);
+function touchDown(p){
+  audio();
+  const now = performance.now();
+  if(game === 'fly'){
+    if(ptrs.size >= 2) doLoop();
+    else { guy.vy -= 430*S; keyFlapT = now/1000; sfx.flap(); }
+  } else if(game === 'band') bandTouch(p);
+}
+function touchMove(p){
+  if(game === 'band' && p.x > W*0.55){ const b = barFromY(p.y); if(b !== p.bar){ bandXylo(b); p.bar = b; } }
+}
+function touchUp(p){
+  if(game === 'marble' && performance.now() - p.t0 < 220 && p.moved < 20) mrJump();
+}
+function bandTouch(p){
+  for(let i=0;i<2;i++){ const d = drumPos(i); if(Math.hypot(p.x - d.x, p.y - d.y) < d.r*1.4){ bandDrum(i); return; } }
+  if(p.x > W*0.55){ p.bar = barFromY(p.y); bandXylo(p.bar); return; }
+  if(p.y < H*0.45) bandCrash(); else bandBoom();
+}
+// finger(s) on screen, or the mouse pointer when using a mouse
+function pointerHands(){
+  const hs = [...ptrs.values()].map((p, i)=>({ x:p.x, y:p.y, c:i ? '#4dd2ff' : '#ff6b9a', side:i ? -1 : 1, prog:0 }));
+  if(!hs.length && lastPtrType === 'mouse') hs.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1, prog:0 });
+  return hs;
+}
+
 /* ---------- settings ---------- */
 let mode = 'front';
 try { mode = localStorage.getItem('sgf-mode') || 'front'; } catch(e){}
@@ -104,6 +181,7 @@ let state = 'setup';   // setup | loading | star | play
 let input = 'none';    // camera | keys
 let game = 'me';       // me | fly | bubbles | band | puzzle
 try { game = localStorage.getItem('sgf-game') || 'me'; } catch(e){}
+if(TOUCH && (game === 'me' || !['fly','bubbles','band','puzzle','marble','dots'].includes(game))) game = 'marble';
 const HOW = {
   me: 'You are the silly guy! Flap and flop to puff him up and start the music. Stop moving and he flops over. Clap to change him!',
   fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
@@ -117,8 +195,9 @@ function setGame(g){
   game = g;
   try { localStorage.setItem('sgf-game', g); } catch(e){}
   document.querySelectorAll('.card').forEach(c=>c.classList.toggle('on', c.dataset.game===g));
-  $('#how').textContent = HOW[g];
-  $('#startKeys').textContent = g === 'dots' ? 'Play with touch' : 'Try with keyboard';
+  $('#how').textContent = (TOUCH && HOW_TOUCH[g]) || HOW[g];
+  $('#startKeys').textContent = TOUCH ? 'Play' : g === 'dots' ? 'Play with touch' : 'Try with keyboard';
+  if(TOUCH) $('#startKeys').classList.add('big');
 }
 document.querySelectorAll('.card[data-game]').forEach(c=>c.onclick = ()=>setGame(c.dataset.game));
 
@@ -537,6 +616,7 @@ function update(dt, now){
     } else if(input === 'keys'){
       lean = (keys['arrowright']?1:0) - (keys['arrowleft']?1:0);
       out = !!keys['arrowup']; down = !!keys['arrowdown'];
+      if(ptrs.size){ const p = [...ptrs.values()][0]; lean = clamp((p.x - guy.x)/(W*0.15), -1, 1); if(now - p.t0 > 300) out = true; }
       const ft = t - keyFlapT;
       let e = ft < 0.3 ? lerp(1.1, -0.9, ft/0.3) : (out ? 0 : down ? -1.2 : -0.5 + Math.sin(t*3)*0.25);
       dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dirR = { x:Math.cos(e), y:-Math.sin(e) };
@@ -923,7 +1003,7 @@ function updateBubbles(dt, now, fresh){
     bub.dirL = sig.armDirL; bub.dirR = sig.armDirR;
     if($('#msg').textContent === 'I can\'t see you!') setMsg('');
   } else if(input === 'keys'){
-    bub.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1 });
+    bub.hands.push(...pointerHands());
     const e = Math.sin(t*6)*0.6 + 0.6;
     bub.dirL = { x:-Math.cos(e), y:-Math.sin(e) }; bub.dirR = { x:Math.cos(e), y:-Math.sin(e) };
   } else if(input === 'camera' && now - lastPoseT > 1500){
@@ -1235,7 +1315,7 @@ function updatePuzzle(dt, now, fresh){
       if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
     }
   } else if(input === 'keys'){
-    puz.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1, prog:0 });
+    if(lastPtrType === 'mouse' || puz.mouseHeld) puz.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1, prog:0 });
     if(puz.mouseHeld){ puz.mouseHeld.x = mouse.x; puz.mouseHeld.y = mouse.y; }
   }
   const holdingNow = [...puz.held, puz.mouseHeld];
@@ -1425,8 +1505,8 @@ function updateBand(dt, now, fresh){
     if(sig.jump){ sig.jump = false; bandCrash(); }
     if($('#msg').textContent === 'I can\'t see you!') setMsg('');
   } else if(input === 'keys'){
-    band.hands.push({ x:mouse.x, y:mouse.y, c:'#ff6b9a', side:1 });
-    const mv = Math.hypot(mouse.x - band.lastMouse.x, mouse.y - band.lastMouse.y)/Math.max(dt,0.001);
+    band.hands.push(...pointerHands());
+    const mv = lastPtrType !== 'mouse' ? 0 : Math.hypot(mouse.x - band.lastMouse.x, mouse.y - band.lastMouse.y)/Math.max(dt,0.001);
     band.lastMouse = { x:mouse.x, y:mouse.y };
     if(mouse.x > W*0.6 && mv > 250*S) bandXylo(barFromY(mouse.y));
   } else if(input === 'camera' && now - lastPoseT > 1500){
@@ -2024,6 +2104,11 @@ function updateMarble(dt, now, fresh){
   } else if(input === 'keys'){
     steer = (keys['arrowright']?1:0) - (keys['arrowleft']?1:0);
     pump = keys['arrowup'] ? 4 : 0;
+    if(ptrs.size){
+      const p = [...ptrs.values()][0];
+      if(now - p.t0 > 150 || p.moved > 15) steer = clamp((p.x - W/2)/(W*0.22), -1, 1);
+      if(ptrs.size >= 2) pump = 4;
+    }
   } else if(input === 'camera' && now - lastPoseT > 1500){
     if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
     if(now - lastLostSay > 9000){ mrSay('Where did you go?'); lastLostSay = now; }
