@@ -275,6 +275,7 @@ if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = pickVoice; pi
 let lastSpeak = 0;
 function say(text, force=false){
   if(!('speechSynthesis' in window)) return;
+  if(game === 'dots' && state !== 'setup'){ speechSynthesis.cancel(); return; }  // Silly Dots plays without talking
   const now = performance.now();
   if(!force && (speechSynthesis.speaking || now-lastSpeak < 1200)) return;
   if(force) speechSynthesis.cancel();
