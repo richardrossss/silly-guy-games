@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#7ec8ff;font-family:'Baloo 2',system-ui,sans-serif;user-select:none}
-canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block}
+canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;-webkit-touch-callout:none}
 #preview{position:fixed;right:16px;bottom:16px;width:260px;height:195px;border-radius:14px;border:3px solid #fff;box-shadow:0 4px 20px rgba(0,0,0,.25);background:#000;z-index:6;display:none}
 #hud{position:fixed;left:14px;top:14px;display:none;gap:8px;z-index:6;opacity:.3;transition:opacity .2s}
 #hud:hover{opacity:1}
@@ -39,6 +39,7 @@ video{display:none}
   <button class="btn" id="hudMode">Camera: front</button>
   <button class="btn" id="hudPrev">Hide camera view</button>
   <button class="btn" id="hudFull">Fullscreen</button>
+  <button class="btn" id="hudMusic" style="display:none">Music: on</button>
   <button class="btn" id="hudMenu">Menu</button>
 </div>
 
@@ -51,6 +52,7 @@ video{display:none}
     <button class="card" data-game="band"><span class="ic">🥁</span>Wiggle Band</button>
     <button class="card" data-game="puzzle"><span class="ic">🧩</span>Puzzle</button>
     <button class="card" data-game="marble"><span class="ic">🔮</span>Marble Race</button>
+    <button class="card" data-game="dots"><span class="ic">🔴</span>Silly Dots</button>
   </div>
   <p id="how"></p>
   <div class="row">
@@ -71,7 +73,7 @@ video{display:none}
     <button class="btn" id="startKeys">Try with keyboard</button>
   </div>
   <div id="err"></div>
-  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop.</p>
+  <p class="small">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color. M turns the Silly Dots music on or off.</p>
 </div>
 
 <script type="module">
@@ -107,6 +109,7 @@ const HOW = {
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
   puzzle: 'Hold your hand on a piece to pick it up, then carry it to where it goes!',
   marble: 'Tip your arms like an airplane to steer your marble. Flap to go fast. Jump to hop. Pop bubbles and race into the funnel!',
+  dots: 'Connect dots of the same color! Make a square to pop them all.',
   band: 'One hand bangs the drums. The other hand plays the xylophone, high or low. Bounce for a BOOM. Jump for a crash!'
 };
 function setGame(g){
@@ -114,6 +117,7 @@ function setGame(g){
   try { localStorage.setItem('sgf-game', g); } catch(e){}
   document.querySelectorAll('.card').forEach(c=>c.classList.toggle('on', c.dataset.game===g));
   $('#how').textContent = HOW[g];
+  $('#startKeys').textContent = g === 'dots' ? 'Play with touch' : 'Try with keyboard';
 }
 document.querySelectorAll('.card').forEach(c=>c.onclick = ()=>setGame(c.dataset.game));
 
@@ -240,6 +244,7 @@ async function startCamera(){
       catch(e){ landmarker = await PoseLandmarker.createFromOptions(fileset, opts('CPU')); }
     }
     input = 'camera';
+    $('#hudMode').style.display = ''; $('#hudPrev').style.display = '';
     $('#hud').style.display = 'flex';
     enterStar();
   }catch(e){
@@ -256,6 +261,7 @@ $('#startCam').onclick = ()=>{
 };
 $('#startKeys').onclick = ()=>{
   audio(); input = 'keys';
+  $('#hudMode').style.display = 'none'; $('#hudPrev').style.display = 'none';
   $('#overlay').style.display = 'none';
   $('#hud').style.display = 'flex';
   startPlay();
@@ -381,6 +387,7 @@ addEventListener('keydown', e=>{
   if(k === 'f'){ setMode(mode==='front'?'back':'front'); flash(mode==='front'?'Camera in front':'Camera behind',1.2); return; }
   if(k === 'p'){ togglePreview(); return; }
   if(k === 'escape'){ openMenu(); return; }
+  if(k === 'm'){ dToggleMusic(); return; }
   if(k === 'enter' && state === 'star'){ startPlay(); return; }
   if(k === 'c' && state !== 'setup' && game !== 'marble' && !keys.c){ keys.c = true; clap(); return; }
   if(state !== 'play') return;
@@ -426,6 +433,7 @@ function basePos(){
   if(state === 'play' && game === 'band') return { x:W*0.47, y:H*0.88 };
   if(state === 'play' && game === 'puzzle') return { x:W*0.07, y:H*0.99 };
   if(state === 'play' && game === 'marble') return { x:W*0.07, y:H*0.99 };
+  if(state === 'play' && game === 'dots') return { x: W > H*1.05 ? W*0.09 : W*0.14, y:H*0.99 };
   return { x:W/2, y:H*0.88 };
 }
 function resetGuy(g = true){
@@ -465,9 +473,11 @@ function startPlay(){
   else if(game === 'fly'){ flash('Fly!', 1.2); say('Flap your arms to fly!', true); }
   else if(game === 'marble'){ mr.level = 0; mrStart(); }
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
+  else if(game === 'dots'){ dots.lv = 0; dots.stars = 0; startDots(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
   else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; say('Pop the bubbles with your hands!', true); }
   lastTip = performance.now();
+  $('#hudMusic').style.display = game === 'dots' ? '' : 'none';
   updatePreviewVis();
 }
 function doLoop(){
@@ -498,6 +508,9 @@ function update(dt, now){
   } else if(state === 'play' && game === 'marble'){
     updateMarble(dt, now, fresh);
     dirL = mr.dirL; dirR = mr.dirR;
+  } else if(state === 'play' && game === 'dots'){
+    updateDots(dt, now, fresh);
+    dirL = dots.dirL; dirR = dots.dirR;
   } else if(state === 'play' && game === 'band'){
     updateBand(dt, now, fresh);
     dirL = band.dirL; dirR = band.dirR;
@@ -841,6 +854,11 @@ function draw(now){
   if(game === 'marble' && state === 'play'){
     drawMarble(t);
     drawMarbleHUD(t);
+  } else if(game === 'dots' && state === 'play'){
+    drawDotsBG(t);
+    drawGuy(t);
+    drawDots(t);
+    drawHands(t);
   } else if(game === 'puzzle' && state === 'play'){
     drawPuzzleBG(t);
     drawGuy(t);
@@ -995,7 +1013,7 @@ function drawBubbles(t){
   }
 }
 function drawHands(t){
-  for(const h of (game === 'band' ? band.hands : game === 'puzzle' ? puz.hands : bub.hands)){
+  for(const h of (game === 'band' ? band.hands : game === 'puzzle' ? puz.hands : game === 'dots' ? dots.hands : bub.hands)){
     if(h.x < -100) continue;
     ctx.save(); ctx.translate(h.x, h.y);
     ctx.fillStyle = h.c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S;
@@ -2327,6 +2345,484 @@ function drawMarbleHUD(t){
     ctx.fillStyle = '#3bd16a'; ctx.fillText('GO!', 0, 0);
     ctx.restore(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
+}
+
+/* ---------- SILLY DOTS ---------- */
+const DOT_COLS = [
+  { name:'Red', c:'#ff4f5e' }, { name:'Blue', c:'#4a8dff' }, { name:'Yellow', c:'#ffc23c' },
+  { name:'Green', c:'#38c972' }, { name:'Purple', c:'#a066ff' }
+];
+const DOT_LEVELS = [
+  { cols:5, rows:5, colors:3, goals:[[0,6],[1,6]] },
+  { cols:5, rows:5, colors:3, goals:[[0,8],[1,8],[2,8]] },
+  { cols:6, rows:6, colors:4, goals:[[3,10],[2,10]], square:true },
+  { cols:6, rows:6, colors:4, goals:[[0,12],[1,12],[3,12]] },
+  { cols:6, rows:7, colors:5, goals:[[4,12],[2,15]], square:true },
+  { cols:6, rows:7, colors:5, goals:[[0,15],[1,15],[3,15],[4,15]] }
+];
+const dots = { lv:0, stars:0, cols:5, rows:5, nCol:3, grid:[], cs:60, ox:0, oy:0, u:1, path:[], square:false, dragging:false, ptr:null,
+  goals:[], done:false, doneT:0, hands:[], dirL:{x:-0.7,y:-0.7}, dirR:{x:0.7,y:-0.7}, lastMove:0, lastHint:0, hint:null,
+  rings:[], ghosts:[], sqFlash:0, sqK:0, dwell:[0,0], dwellDot:[null,null], camHand:-1, lastGrow:0, squareLv:false };
+
+function dotsLayout(){
+  const land = W > H*1.05;
+  const x0 = land ? W*0.2 : W*0.04, x1 = land ? W*0.97 : W*0.96;
+  const y0 = land ? H*0.17 : H*0.15, y1 = land ? H*0.97 : H*0.8;
+  dots.cs = Math.min((x1-x0)/dots.cols, (y1-y0)/dots.rows);
+  dots.ox = (x0+x1)/2 - dots.cs*dots.cols/2;
+  dots.oy = (y0+y1)/2 - dots.cs*dots.rows/2;
+  dots.u = Math.max(0.5, Math.min(W, H)/850);
+}
+const dcx = c => dots.ox + (c+0.5)*dots.cs;
+const dcy = r => dots.oy + (r+0.5)*dots.cs;
+function dotPick(avoid){
+  let k;
+  do { k = Math.floor(Math.random()*dots.nCol); } while(k === avoid && dots.nCol > 2);
+  return k;
+}
+function dotsHasMove(){
+  const g = dots.grid;
+  for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    const k = g[c][r].k;
+    if(c+1 < dots.cols && g[c+1][r].k === k) return true;
+    if(r+1 < dots.rows && g[c][r+1].k === k) return true;
+  }
+  return false;
+}
+function dotsEnsureMoves(){
+  let n = 0;
+  while(!dotsHasMove() && n++ < 50) for(const col of dots.grid) for(const d of col){ d.k = dotPick(-1); d.sq = 0.25; }
+}
+function listWords(a){ return a.length < 2 ? a[0] : a.slice(0,-1).join(', ') + ' and ' + a[a.length-1]; }
+function startDots(){
+  const L = DOT_LEVELS[dots.lv % DOT_LEVELS.length], loop = Math.floor(dots.lv / DOT_LEVELS.length);
+  dots.cols = L.cols; dots.rows = L.rows; dots.nCol = L.colors; dots.squareLv = !!L.square;
+  dots.goals = L.goals.map(([k,n])=>({ k, need:Math.round(n*(1 + loop*0.5)), got:0, bump:0 }));
+  dots.grid = [];
+  for(let c=0;c<dots.cols;c++){
+    const col = [];
+    for(let r=0;r<dots.rows;r++) col.push({ k:dotPick(-1), dy:dots.rows + 0.5 + c*0.45, v:0, sq:0 });
+    dots.grid.push(col);
+  }
+  dotsEnsureMoves();
+  dots.path = []; dots.square = false; dots.dragging = false; dots.ptr = null; dots.done = false; dots.camHand = -1;
+  dots.hint = null; dots.rings = []; dots.ghosts = []; dots.sqFlash = 0; dots.dwell = [0,0]; dots.dwellDot = [null,null];
+  dots.lastMove = dots.lastHint = performance.now();
+  dotsLayout();
+  $('#msg').style.color = '#ff6b9a';
+  const names = dots.goals.map(g=>DOT_COLS[g.k].name.toLowerCase());
+  if(dots.lv === 0) say('Connect the dots! Find two the same color.', true);
+  else if(dots.squareLv) say('Make a square to pop them all!', true);
+  else say('Get the ' + listWords(names) + ' dots!', true);
+  dMusicStart();
+}
+function dotAt(x, y, tol){
+  const c = Math.floor((x - dots.ox)/dots.cs), r = Math.floor((y - dots.oy)/dots.cs);
+  if(c < 0 || r < 0 || c >= dots.cols || r >= dots.rows) return null;
+  if(Math.hypot(x - dcx(c), y - dcy(r)) > dots.cs*tol) return null;
+  return { c, r };
+}
+function dotsBegin(d, x, y){
+  dots.path = [d]; dots.square = false; dots.ptr = { x, y };
+  dots.lastGrow = dots.lastMove = performance.now(); dots.hint = null;
+  dotNote(0); dotRing(d);
+}
+function dotRing(d){ dots.rings.push({ x:dcx(d.c), y:dcy(d.r), k:dots.grid[d.c][d.r].k, life:0.5 }); }
+function pathHasLoop(){ const s = new Set(); for(const p of dots.path){ const key = p.c*100 + p.r; if(s.has(key)) return true; s.add(key); } return false; }
+function dotsStep(x, y){
+  const P = dots.path, last = P[P.length-1];
+  if(!last) return;
+  const d = dotAt(x, y, 0.4);
+  if(!d || (d.c === last.c && d.r === last.r)) return;
+  if(Math.abs(d.c - last.c) + Math.abs(d.r - last.r) !== 1) return;
+  const k = dots.grid[last.c][last.r].k;
+  if(dots.grid[d.c][d.r].k !== k) return;
+  const prev = P[P.length-2];
+  if(prev && prev.c === d.c && prev.r === d.r){
+    P.pop();
+    if(dots.square && !pathHasLoop()) dots.square = false;
+    dotBack(); dots.lastGrow = performance.now();
+    return;
+  }
+  if(dots.square) return;
+  const inPath = P.some(p=>p.c === d.c && p.r === d.r);
+  P.push(d); dots.lastGrow = performance.now();
+  if(inPath){
+    dots.square = true; dots.sqK = k; dots.sqFlash = 1;
+    dotSquareSound();
+    for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(dots.grid[c][r].k === k) dotRing({ c, r });
+  } else { dotNote(P.length-1); dotRing(d); }
+}
+function dotsTraceTo(x, y){
+  const p = dots.ptr || { x, y };
+  const steps = Math.max(1, Math.ceil(Math.hypot(x - p.x, y - p.y)/(dots.cs*0.15)));
+  for(let i=1;i<=steps;i++) dotsStep(lerp(p.x, x, i/steps), lerp(p.y, y, i/steps));
+  dots.ptr = { x, y };
+}
+function dotsCancel(){ dots.path = []; dots.square = false; dots.dragging = false; dots.camHand = -1; dots.ptr = null; }
+function dotsCollapse(set, avoid){
+  for(let c=0;c<dots.cols;c++){
+    const col = dots.grid[c], keep = [];
+    for(let r=dots.rows-1;r>=0;r--) if(!set.has(c*100 + r)) keep.push({ d:col[r], from:r });
+    let r = dots.rows - 1;
+    for(const s of keep){ s.d.dy += r - s.from; col[r] = s.d; r--; }
+    const empties = r + 1;
+    for(; r>=0; r--) col[r] = { k:dotPick(avoid), dy:empties + 0.3, v:0, sq:0 };
+  }
+}
+function dotsRelease(){
+  const P = dots.path, sq = dots.square, now = performance.now();
+  dotsCancel();
+  if(P.length < 2) return;
+  const k = dots.grid[P[0].c][P[0].r].k, col = DOT_COLS[k];
+  const set = new Set();
+  if(sq){ for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(dots.grid[c][r].k === k) set.add(c*100 + r); }
+  else P.forEach(p=>set.add(p.c*100 + p.r));
+  for(const key of set){
+    const c = Math.floor(key/100), r = key % 100, x = dcx(c), y = dcy(r);
+    dots.ghosts.push({ x, y, k, life:0.35 });
+    for(let i=0;i<6;i++){ const a = Math.random()*7, v = rnd(120,300)*dots.u; bits.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 100*dots.u, life:rnd(0.4,0.7), c:col.c, s:rnd(6,10)*dots.u, rot:0, vr:rnd(-8,8), g:0.4 }); }
+  }
+  const goal = dots.goals.find(g=>g.k === k);
+  const wasDone = goal && goal.got >= goal.need;
+  if(goal && !wasDone){ goal.got = Math.min(goal.need, goal.got + set.size); goal.bump = 1; }
+  dotsCollapse(set, sq ? k : -1);
+  dotsEnsureMoves();
+  dotClearSound(set.size);
+  dots.lastMove = now; dots.hint = null;
+  if(dots.goals.every(g=>g.got >= g.need)){
+    dots.done = true; dots.doneT = now; dots.stars++;
+    guy.spinT = 0.8; dotWinSound();
+    say('You did it! Hooray!', true); flash('You did it!', 2.5);
+    for(let i=0;i<120;i++){ const c2 = DOT_COLS[i % DOT_COLS.length].c; bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:c2, s:rnd(6,12)*dots.u, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 }); }
+  } else if(sq){
+    guy.spinT = 0.8; say('A square! All the ' + col.name.toLowerCase() + ' ones!', true);
+  } else if(goal && !wasDone && goal.got >= goal.need){
+    guy.spinT = 0.8; say('All done with ' + col.name.toLowerCase() + '!', true);
+  } else if(set.size >= 5){
+    guy.spinT = 0.8; say('Wow! So many!', true);
+  } else if(Math.random() < 0.35){
+    const yes = ['Yay!', 'Pop pop!', 'Nice!', col.name + '!'];
+    say(yes[Math.floor(Math.random()*yes.length)]);
+  }
+}
+function dotsFindPair(){
+  const g = dots.grid, wanted = dots.goals.filter(q=>q.got < q.need).map(q=>q.k);
+  let any = null;
+  for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    const k = g[c][r].k;
+    for(const [dc,dr] of [[1,0],[0,1]]){
+      const c2 = c+dc, r2 = r+dr;
+      if(c2 >= dots.cols || r2 >= dots.rows || g[c2][r2].k !== k) continue;
+      const pair = [{c,r},{c:c2,r:r2}];
+      if(wanted.includes(k)) return pair;
+      any = any || pair;
+    }
+  }
+  return any;
+}
+addEventListener('pointerdown', e=>{
+  if(!(state === 'play' && game === 'dots') || dots.done || dots.camHand >= 0) return;
+  const d = dotAt(e.clientX, e.clientY, 0.55);
+  if(!d) return;
+  audio(); dots.dragging = true; dotsBegin(d, e.clientX, e.clientY);
+});
+addEventListener('pointermove', e=>{ if(dots.dragging) dotsTraceTo(e.clientX, e.clientY); });
+addEventListener('pointerup', ()=>{ if(dots.dragging) dotsRelease(); });
+addEventListener('pointercancel', ()=>{ if(dots.dragging) dotsCancel(); });
+
+function updateDots(dt, now, fresh){
+  const t = now/1000;
+  dotsLayout();
+  { const b = basePos(); guy.x = b.x; guy.y = b.y; }
+  speed = lerp(speed, 60*S, 0.05);
+  if(guy.spinT > 0) guy.spinT = Math.max(0, guy.spinT - dt);
+  const e = Math.sin(t*2.2)*0.5 + 0.4;
+  dots.dirL = { x:-Math.cos(e), y:-Math.sin(e) }; dots.dirR = { x:Math.cos(e), y:-Math.sin(e) };
+
+  for(const col of dots.grid) for(const d of col){
+    if(d.dy > 0){
+      d.v += 45*dt; d.dy -= d.v*dt;
+      if(d.dy <= 0){ d.dy = 0; if(d.v > 3) d.sq = 0.22; d.v = 0; }
+    }
+    d.sq = Math.max(0, d.sq - dt*1.4);
+  }
+  for(const r of dots.rings) r.life -= dt;
+  dots.rings = dots.rings.filter(r=>r.life > 0);
+  for(const g of dots.ghosts) g.life -= dt;
+  dots.ghosts = dots.ghosts.filter(g=>g.life > 0);
+  dots.sqFlash = Math.max(0, dots.sqFlash - dt*2.5);
+  for(const g of dots.goals) g.bump = Math.max(0, g.bump - dt*3);
+  dots.hands = [];
+
+  if(dots.done){
+    if(now - dots.doneT > 4500){ dots.lv++; startDots(); }
+    return;
+  }
+
+  if(input === 'camera' && fresh && sig.pts){
+    const hs = [toScreen(sig.pts.L.w), toScreen(sig.pts.R.w)];
+    dots.dirL = sig.armDirL; dots.dirR = sig.armDirR;
+    if(dots.camHand < 0 && !dots.dragging){
+      hs.forEach((h, i)=>{
+        const hand = { ...h, c: i ? '#ff6b9a' : '#4dd2ff', side: i ? 1 : -1, prog:0 };
+        const d = dotAt(h.x, h.y, 0.5), w = dots.dwellDot[i];
+        const same = d && w && d.c === w.c && d.r === w.r;
+        dots.dwell[i] = same ? dots.dwell[i] + dt : 0; dots.dwellDot[i] = d;
+        if(d){
+          hand.prog = Math.min(1, dots.dwell[i]/0.45);
+          if(dots.dwell[i] >= 0.45 && dots.camHand < 0){ dotsBegin(d, h.x, h.y); dots.camHand = i; dots.dwell = [0,0]; }
+        }
+        dots.hands.push(hand);
+      });
+    } else if(dots.camHand >= 0){
+      const i = dots.camHand, h = hs[i];
+      dotsTraceTo(h.x, h.y);
+      dots.hands.push({ ...h, c: i ? '#ff6b9a' : '#4dd2ff', side: i ? 1 : -1, prog:0 });
+      const idle = now - dots.lastGrow;
+      if(dots.path.length >= 2 && idle > 900) dotsRelease();
+      else if(dots.path.length < 2 && idle > 2200) dotsCancel();
+    }
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'camera'){
+    if(dots.camHand >= 0){ if(dots.path.length >= 2) dotsRelease(); else dotsCancel(); }
+    if(now - lastPoseT > 1500){
+      if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+      if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+    }
+  }
+
+  // the silly guy points at the dots you're connecting
+  if(dots.path.length && input !== 'camera'){
+    const root = chain[N-4], last = dots.path[dots.path.length-1];
+    const tx = dots.ptr ? dots.ptr.x : dcx(last.c), ty = dots.ptr ? dots.ptr.y : dcy(last.r);
+    const dx = tx - root.x, dy = ty - root.y, dd = Math.hypot(dx, dy) || 1;
+    dots.dirR = { x:dx/dd, y:dy/dd };
+  }
+
+  // gentle hint when he's stuck
+  if(!dots.path.length && now - dots.lastMove > 9000 && now - dots.lastHint > 9000){
+    dots.hint = dotsFindPair(); dots.lastHint = now;
+    if(dots.hint && now - lastSpeak > 4000){
+      const k = dots.grid[dots.hint[0].c][dots.hint[0].r].k;
+      say('Try the ' + DOT_COLS[k].name.toLowerCase() + ' ones!');
+    }
+  }
+}
+
+function drawDotsBG(t){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#fffaf2'); g.addColorStop(1,'#ffe8d8');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<9;i++){
+    ctx.fillStyle = DOT_COLS[i % 4].c + '14';
+    const x = ((i*263) % 1000)/1000*W + Math.sin(t*0.2 + i)*30*S, y = ((i*419) % 1000)/1000*H + Math.cos(t*0.17 + i*2)*30*S;
+    ctx.beginPath(); ctx.arc(x, y, (60 + (i%3)*40)*dots.u, 0, 7); ctx.fill();
+  }
+  if(dots.sqFlash > 0 || dots.square){
+    ctx.globalAlpha = dots.square ? 0.1 + Math.sin(t*6)*0.03 : dots.sqFlash*0.25;
+    ctx.fillStyle = DOT_COLS[dots.sqK].c; ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawDots(t){
+  const cs = dots.cs, R = cs*0.26, u = dots.u;
+  const P = dots.path;
+  const inPath = new Set(P.map(p=>p.c*100 + p.r));
+  const pk = P.length ? dots.grid[P[0].c][P[0].r].k : -1;
+  const hint = dots.hint ? new Set(dots.hint.map(p=>p.c*100 + p.r)) : null;
+
+  if(dots.square){
+    ctx.strokeStyle = DOT_COLS[pk].c; ctx.globalAlpha = 0.7 + Math.sin(t*8)*0.3;
+    ctx.lineWidth = 16*u; ctx.strokeRect(8*u, 8*u, W - 16*u, H - 16*u); ctx.globalAlpha = 1;
+  }
+  // the line
+  if(P.length){
+    ctx.strokeStyle = DOT_COLS[pk].c; ctx.lineWidth = cs*0.11; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(dcx(P[0].c), dcy(P[0].r));
+    for(let i=1;i<P.length;i++) ctx.lineTo(dcx(P[i].c), dcy(P[i].r));
+    if(dots.ptr && !dots.square) ctx.lineTo(dots.ptr.x, dots.ptr.y);
+    ctx.stroke();
+  }
+  // the dots (clipped so new ones slide in from the top of the board)
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, dots.oy - cs*0.05, W, H); ctx.clip();
+  for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    const d = dots.grid[c][r], key = c*100 + r;
+    const x = dcx(c), y = dcy(r) - d.dy*cs;
+    let s = 1;
+    if(inPath.has(key) || (dots.square && d.k === pk)) s = 1.15 + Math.sin(t*10)*0.04;
+    else if(hint && hint.has(key)) s = 1 + Math.abs(Math.sin(t*5))*0.22;
+    ctx.fillStyle = DOT_COLS[d.k].c;
+    ctx.beginPath(); ctx.ellipse(x, y + d.sq*R*0.5, R*s*(1 + d.sq*0.8), R*s*(1 - d.sq*0.8), 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
+    ctx.beginPath(); ctx.ellipse(x - R*0.32*s, y - R*0.35*s, R*0.28*s, R*0.17*s, -0.6, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+  for(const g of dots.ghosts){
+    const p = 1 - g.life/0.35;
+    ctx.globalAlpha = 1 - p; ctx.fillStyle = DOT_COLS[g.k].c;
+    ctx.beginPath(); ctx.arc(g.x, g.y, R*(1 + p*0.8), 0, 7); ctx.fill();
+  }
+  for(const r of dots.rings){
+    const p = 1 - r.life/0.5;
+    ctx.globalAlpha = (1 - p)*0.8; ctx.strokeStyle = DOT_COLS[r.k].c; ctx.lineWidth = 5*u;
+    ctx.beginPath(); ctx.arc(r.x, r.y, R*(1.1 + p*1.3), 0, 7); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // goals: one dot per color with how many are left
+  const gr = Math.max(18, 30*u), gap = gr*3.1, n = dots.goals.length;
+  const gy = Math.max(gr + 14*u, dots.oy*0.48), gx0 = dots.ox + cs*dots.cols/2 - (n-1)*gap/2;
+  dots.goals.forEach((g, i)=>{
+    const x = gx0 + i*gap, done = g.got >= g.need, k = 1 + g.bump*0.25;
+    ctx.save(); ctx.translate(x, gy); ctx.scale(k, k);
+    ctx.lineWidth = 7*u; ctx.strokeStyle = 'rgba(0,0,0,.08)';
+    ctx.beginPath(); ctx.arc(0, 0, gr + 9*u, 0, 7); ctx.stroke();
+    ctx.strokeStyle = DOT_COLS[g.k].c;
+    ctx.beginPath(); ctx.arc(0, 0, gr + 9*u, -Math.PI/2, -Math.PI/2 + Math.PI*2*g.got/g.need); ctx.stroke();
+    ctx.fillStyle = DOT_COLS[g.k].c;
+    ctx.beginPath(); ctx.arc(0, 0, gr, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `800 ${gr*1.15}px "Baloo 2", sans-serif`;
+    ctx.fillText(done ? '✓' : String(g.need - g.got), 0, gr*0.08);
+    ctx.restore();
+  });
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
+  // stars for finished levels
+  if(dots.stars){
+    const r = Math.max(12, 18*u), x = W - r*1.6, y = r*1.8;
+    ctx.fillStyle = '#ffb81c'; ctx.beginPath();
+    for(let k=0;k<10;k++){ const a = -Math.PI/2 + k*Math.PI/5, rr = k%2 ? r*0.45 : r; ctx.lineTo(x + Math.cos(a)*rr, y + Math.sin(a)*rr); }
+    ctx.fill();
+    ctx.font = `800 ${r*1.5}px "Baloo 2", sans-serif`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(dots.stars), x - r*1.3, y + r*0.1);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+}
+
+/* ---------- SILLY DOTS music: soft pads, dMallet twinkles, notes that climb as you connect ---------- */
+const dmus = { on:true, out:null, bgm:null, bgmSend:null, fx:null, rev:null, dly:null, next:0, step:0, lastArp:0 };
+try { dmus.on = localStorage.getItem('sgf-music') !== 'off'; } catch(e){}
+const DBEAT = 60/74;
+const DPENTA = [60,62,64,67,69,72,74,76,79,81,84,86,88,91,93,96];
+const DCHORDS = [
+  { b:41, p:[57,60,64,67], t:[69,72,76,79,81] },   // Fmaj9
+  { b:45, p:[55,60,64,69], t:[69,72,76,79,84] },   // Am7
+  { b:38, p:[57,62,65,69], t:[69,74,77,81,86] },   // Dm7
+  { b:43, p:[55,60,62,67], t:[67,72,74,79,86] }    // Gsus
+];
+const dmtof = m => 440*Math.pow(2, (m-69)/12);
+function dBus(){
+  if(dmus.out || !ac) return;
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+  comp.connect(ac.destination);
+  dmus.out = comp;
+  dmus.bgm = ac.createGain(); dmus.bgm.gain.value = dmus.on ? 1 : 0; dmus.bgm.connect(comp);
+  dmus.fx = ac.createGain(); dmus.fx.gain.value = 1; dmus.fx.connect(comp);
+  dmus.rev = ac.createConvolver();
+  const len = Math.floor(ac.sampleRate*3), ir = ac.createBuffer(2, len, ac.sampleRate);
+  for(let ch=0; ch<2; ch++){ const d = ir.getChannelData(ch); for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.pow(1 - i/len, 3.2); }
+  dmus.rev.buffer = ir;
+  const wet = ac.createGain(); wet.gain.value = 0.32; dmus.rev.connect(wet).connect(comp);
+  dmus.bgmSend = ac.createGain(); dmus.bgmSend.gain.value = dmus.on ? 1 : 0; dmus.bgmSend.connect(dmus.rev);
+  dmus.dly = ac.createDelay(2); dmus.dly.delayTime.value = DBEAT*0.75;
+  const fb = ac.createGain(); fb.gain.value = 0.3;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+  dmus.dly.connect(lp).connect(fb).connect(dmus.dly);
+  const dOut = ac.createGain(); dOut.gain.value = 0.45; lp.connect(dOut).connect(dmus.bgm);
+}
+function dVoice(at, type, f, vol, a, d, dest, send){
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(vol, at + a); g.gain.exponentialRampToValueAtTime(0.0001, at + a + d);
+  o.connect(g); g.connect(dest);
+  if(send){ const s = ac.createGain(); s.gain.value = send; g.connect(s).connect(dest === dmus.bgm ? dmus.bgmSend : dmus.rev); }
+  o.start(at); o.stop(at + a + d + 0.05);
+  return g;
+}
+function dMallet(at, m, vol, dest, send=0.5){
+  const f = dmtof(m);
+  const g = dVoice(at, 'sine', f, vol, 0.004, 1.4, dest, send);
+  dVoice(at, 'sine', f*4, vol*0.12, 0.002, 0.12, dest, 0);
+  dVoice(at, 'triangle', f*2, vol*0.1, 0.003, 0.4, dest, 0);
+  return g;
+}
+function dPad(at, m, dur){
+  const f = dmtof(m);
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1000; lp.Q.value = 0.4;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(0.028, at + 1.6);
+  g.gain.setValueAtTime(0.028, at + dur - 0.3); g.gain.linearRampToValueAtTime(0.0001, at + dur + 1.8);
+  for(const det of [-8, 8]){ const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.detune.value = det; o.connect(lp); o.start(at); o.stop(at + dur + 1.9); }
+  lp.connect(g); g.connect(dmus.bgm);
+  const s = ac.createGain(); s.gain.value = 0.7; g.connect(s).connect(dmus.bgmSend);
+}
+function dMusicStart(){
+  audio(); dBus();
+  if(!ac) return;
+  if(dmus.next < ac.currentTime){ dmus.next = ac.currentTime + 0.15; dmus.step = 0; }
+}
+function dToggleMusic(){
+  dmus.on = !dmus.on;
+  try { localStorage.setItem('sgf-music', dmus.on ? 'on' : 'off'); } catch(e){}
+  $('#hudMusic').textContent = 'Music: ' + (dmus.on ? 'on' : 'off');
+  if(dmus.bgm && ac){
+    for(const n of [dmus.bgm, dmus.bgmSend]){ n.gain.cancelScheduledValues(ac.currentTime); n.gain.setTargetAtTime(dmus.on ? 1 : 0, ac.currentTime, 0.15); }
+    if(dmus.on){ dmus.next = ac.currentTime + 0.15; dmus.step = 0; }
+  }
+}
+$('#hudMusic').onclick = dToggleMusic;
+$('#hudMusic').textContent = 'Music: ' + (dmus.on ? 'on' : 'off');
+setInterval(()=>{
+  if(!(state === 'play' && game === 'dots' && ac && dmus.out && dmus.on)) return;
+  if(dmus.next < ac.currentTime - 0.25){ dmus.next = ac.currentTime + 0.05; }
+  while(dmus.next < ac.currentTime + 0.15){
+    const at = dmus.next, s = dmus.step, ch = DCHORDS[Math.floor(s/16) % DCHORDS.length];
+    if(s % 16 === 0){
+      ch.p.forEach(m=>dPad(at, m, DBEAT*8));
+      dVoice(at, 'sine', dmtof(ch.b), 0.09, 0.04, 3.2, dmus.bgm, 0.2);
+    }
+    if(s % 16 === 8) dVoice(at, 'sine', dmtof(ch.b + 12), 0.05, 0.04, 2.0, dmus.bgm, 0.2);
+    if(Math.random() < (s % 2 === 0 ? 0.4 : 0.18)){
+      let m, tries = 0;
+      do { m = ch.t[Math.floor(Math.random()*ch.t.length)]; } while(m === dmus.lastArp && tries++ < 5);
+      dmus.lastArp = m;
+      const g = dMallet(at, m, 0.05, dmus.bgm, 0.6);
+      g.connect(dmus.dly);
+    }
+    dmus.next += DBEAT/2; dmus.step++;
+  }
+}, 25);
+function dotNote(i){
+  if(!ac || !dmus.out) return;
+  dMallet(ac.currentTime, DPENTA[Math.min(i, DPENTA.length-1)], 0.2, dmus.fx, 0.45);
+}
+function dotBack(){
+  if(!ac || !dmus.out) return;
+  dVoice(ac.currentTime, 'sine', dmtof(DPENTA[Math.min(dots.path.length-1, DPENTA.length-1)]), 0.08, 0.004, 0.25, dmus.fx, 0.2);
+}
+function dotSquareSound(){
+  if(!ac || !dmus.out) return;
+  const at = ac.currentTime;
+  [60,64,67,72,76,79,84,88].forEach((m,i)=>dMallet(at + i*0.045, m, 0.12, dmus.fx, 0.6));
+}
+function dotClearSound(n){
+  if(!ac || !dmus.out) return;
+  const at = ac.currentTime;
+  for(let i=0;i<Math.min(n, 10);i++){
+    const o = ac.createOscillator(), g = ac.createGain(), t0 = at + i*0.04, f = dmtof(DPENTA[Math.max(0, 11 - i)]);
+    o.type = 'sine'; o.frequency.setValueAtTime(f, t0); o.frequency.exponentialRampToValueAtTime(f*0.55, t0 + 0.12);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.13, t0 + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    o.connect(g).connect(dmus.fx); o.start(t0); o.stop(t0 + 0.2);
+  }
+}
+function dotWinSound(){
+  if(!ac || !dmus.out) return;
+  const at = ac.currentTime + 0.1;
+  DPENTA.slice(0, 13).forEach((m,i)=>dMallet(at + i*0.07, m, 0.14, dmus.fx, 0.6));
+  [72,76,79,84].forEach(m=>dMallet(at + 13*0.07 + 0.1, m, 0.12, dmus.fx, 0.7));
 }
 
 /* ---------- live refresh: reload when a new version is published ---------- */
