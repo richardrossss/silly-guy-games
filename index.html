@@ -120,7 +120,7 @@ function setGame(g){
   $('#how').textContent = HOW[g];
   $('#startKeys').textContent = g === 'dots' ? 'Play with touch' : 'Try with keyboard';
 }
-document.querySelectorAll('.card').forEach(c=>c.onclick = ()=>setGame(c.dataset.game));
+document.querySelectorAll('.card[data-game]').forEach(c=>c.onclick = ()=>setGame(c.dataset.game));
 
 function setMode(m){
   mode = m;
