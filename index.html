@@ -98,7 +98,7 @@ body:not(.touch) .tch{display:none!important}
   </div>
   <div id="err"></div>
   <p class="small tch">Tap a game, then Play. Turn the screen sideways for the biggest view.</p>
-  <p class="small desk">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color. M turns the Silly Dots music on or off.</p>
+  <p class="small desk">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color before you run out of moves. Drop anchors off the bottom, crack ice, and pop next to boxes to break them. M turns the Silly Dots music on or off.</p>
 </div>
 
 <script type="module">
@@ -2602,18 +2602,29 @@ function drawMarbleHUD(t){
 /* ---------- SILLY DOTS ---------- */
 const DOT_COLS = [
   { name:'Red', c:'#ff4f5e' }, { name:'Blue', c:'#4a8dff' }, { name:'Yellow', c:'#ffc23c' },
-  { name:'Green', c:'#38c972' }, { name:'Purple', c:'#a066ff' }
+  { name:'Green', c:'#38c972' }, { name:'Purple', c:'#a066ff' }, { name:'Orange', c:'#ff8a2b' }, { name:'Pink', c:'#ff6fcf' }
 ];
+// Two Dots style challenges. map rows top to bottom:
+// . dot   i ice   I thick ice (2 hits)   w wall box   W strong wall box (2 hits)
+// goals: [colorIndex, count]. anchors: how many anchors to drop off the bottom. moves: move limit.
 const DOT_LEVELS = [
-  { cols:5, rows:5, colors:3, goals:[[0,6],[1,6]] },
-  { cols:5, rows:5, colors:3, goals:[[0,8],[1,8],[2,8]] },
-  { cols:6, rows:6, colors:4, goals:[[3,10],[2,10]], square:true },
-  { cols:6, rows:6, colors:4, goals:[[0,12],[1,12],[3,12]] },
-  { cols:6, rows:7, colors:5, goals:[[4,12],[2,15]], square:true },
-  { cols:6, rows:7, colors:5, goals:[[0,15],[1,15],[3,15],[4,15]] }
+  { name:'Warm Up', colors:3, moves:14, goals:[[0,6],[1,6]], map:['.....','.....','.....','.....','.....'] },
+  { name:'Three Colors', colors:3, moves:14, goals:[[0,9],[1,9],[2,9]], map:['.....','.....','.....','.....','.....'] },
+  { name:'Squares', colors:4, moves:15, square:true, goals:[[3,14],[2,14]], map:['......','......','......','......','......','......'] },
+  { name:'Anchors Away', colors:4, moves:15, anchors:3, goals:[[0,10]], map:['......','......','......','......','......','......'] },
+  { name:'Ice Rink', colors:4, moves:16, goals:[[1,12]], map:['......','......','..ii..','.iiii.','..ii..','......'] },
+  { name:'Box Wall', colors:5, moves:18, goals:[[4,12]], map:['......','......','......','wwwwww','......','......','......'] },
+  { name:'Frozen Anchors', colors:5, moves:18, anchors:3, goals:[], map:['......','......','......','......','......','iiiiii','iiiiii'] },
+  { name:'Big Boxes', colors:5, moves:20, goals:[[3,15],[0,15]], map:['.......','.......','.W...W.','.......','.W...W.','.......','.......'] },
+  { name:'Six Colors', colors:6, moves:20, goals:[[5,12],[1,12],[2,12]], map:['.......','.......','.......','.......','.......','.......','.......'] },
+  { name:'Thick Ice', colors:6, moves:20, anchors:2, goals:[], map:['.......','.......','..III..','..III..','..III..','.......','.......'] },
+  { name:'Castle', colors:6, moves:22, goals:[[5,15]], map:['.......','w.w.w.w','.......','..iii..','.iiiii.','.......','.......','.......'] },
+  { name:'Square Party', colors:6, moves:20, square:true, goals:[[4,24],[6,24]], map:['.......','.......','.......','.......','.......','.......','.......','.......'] },
+  { name:'Everything', colors:6, moves:26, anchors:3, goals:[[0,15]], map:['.......','.......','.WwWwW.','.......','.......','iiiiiii','IIIIIII','.......'] },
+  { name:'Rainbow', colors:7, moves:24, goals:[[0,10],[1,10],[2,10],[6,10]], map:['.......','.......','.......','...W...','.......','.......','.......','.......'] }
 ];
-const dots = { lv:0, stars:0, cols:5, rows:5, nCol:3, grid:[], cs:60, ox:0, oy:0, u:1, path:[], square:false, dragging:false, ptr:null,
-  goals:[], done:false, doneT:0, hands:[], dirL:{x:-0.7,y:-0.7}, dirR:{x:0.7,y:-0.7}, lastMove:0, lastHint:0, hint:null,
+const dots = { lv:0, stars:0, cols:5, rows:5, nCol:3, grid:[], ice:[], cs:60, ox:0, oy:0, u:1, path:[], square:false, dragging:false, ptr:null,
+  goals:[], done:false, doneT:0, failed:false, failT:0, moves:0, anchorsLeft:0, hands:[], dirL:{x:-0.7,y:-0.7}, dirR:{x:0.7,y:-0.7}, lastMove:0, lastHint:0, hint:null,
   rings:[], ghosts:[], sqFlash:0, sqK:0, dwell:[0,0], dwellDot:[null,null], camHand:-1, lastGrow:0, squareLv:false };
 
 function dotsLayout(){
@@ -2627,52 +2638,70 @@ function dotsLayout(){
 }
 const dcx = c => dots.ox + (c+0.5)*dots.cs;
 const dcy = r => dots.oy + (r+0.5)*dots.cs;
+const isDot = (c, r) => { const d = dots.grid[c] && dots.grid[c][r]; return !!d && d.t === 'dot'; };
 function dotPick(avoid){
   let k;
   do { k = Math.floor(Math.random()*dots.nCol); } while(k === avoid && dots.nCol > 2);
   return k;
 }
+const newDot = (avoid, dy=0) => ({ t:'dot', k:dotPick(avoid), dy, v:0, sq:0 });
+const newAnchor = (dy=0) => ({ t:'anchor', k:-1, dy, v:0, sq:0 });
+function anchorsOnBoard(){ let n = 0; for(const col of dots.grid) for(const d of col) if(d.t === 'anchor') n++; return n; }
 function dotsHasMove(){
   const g = dots.grid;
   for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    if(g[c][r].t !== 'dot') continue;
     const k = g[c][r].k;
-    if(c+1 < dots.cols && g[c+1][r].k === k) return true;
-    if(r+1 < dots.rows && g[c][r+1].k === k) return true;
+    if(c+1 < dots.cols && g[c+1][r].t === 'dot' && g[c+1][r].k === k) return true;
+    if(r+1 < dots.rows && g[c][r+1].t === 'dot' && g[c][r+1].k === k) return true;
   }
   return false;
 }
 function dotsEnsureMoves(){
   let n = 0;
-  while(!dotsHasMove() && n++ < 50) for(const col of dots.grid) for(const d of col){ d.k = dotPick(-1); d.sq = 0.25; }
+  while(!dotsHasMove() && n++ < 50) for(const col of dots.grid) for(const d of col) if(d.t === 'dot'){ d.k = dotPick(-1); d.sq = 0.25; }
 }
 function listWords(a){ return a.length < 2 ? a[0] : a.slice(0,-1).join(', ') + ' and ' + a[a.length-1]; }
 function startDots(){
   const L = DOT_LEVELS[dots.lv % DOT_LEVELS.length], loop = Math.floor(dots.lv / DOT_LEVELS.length);
-  dots.cols = L.cols; dots.rows = L.rows; dots.nCol = L.colors; dots.squareLv = !!L.square;
-  dots.goals = L.goals.map(([k,n])=>({ k, need:Math.round(n*(1 + loop*0.5)), got:0, bump:0 }));
-  dots.grid = [];
+  dots.rows = L.map.length; dots.cols = L.map[0].length; dots.nCol = Math.min(DOT_COLS.length, L.colors + (loop ? 1 : 0)); dots.squareLv = !!L.square;
+  dots.moves = Math.max(8, L.moves - loop*2);
+  dots.grid = []; dots.ice = [];
+  let iceTotal = 0, wallTotal = 0;
   for(let c=0;c<dots.cols;c++){
-    const col = [];
-    for(let r=0;r<dots.rows;r++) col.push({ k:dotPick(-1), dy:dots.rows + 0.5 + c*0.45, v:0, sq:0 });
-    dots.grid.push(col);
+    const col = [], ice = [];
+    for(let r=0;r<dots.rows;r++){
+      const ch = L.map[r][c];
+      ice.push(ch === 'i' ? 1 : ch === 'I' ? 2 : 0);
+      if(ch === 'i' || ch === 'I') iceTotal++;
+      if(ch === 'w' || ch === 'W'){ col.push({ t:'wall', k:-2, hp: ch === 'W' ? 2 : 1, dy:0, v:0, sq:0 }); wallTotal++; }
+      else col.push(newDot(-1, dots.rows + 0.5 + c*0.45));
+    }
+    dots.grid.push(col); dots.ice.push(ice);
+  }
+  dots.goals = L.goals.map(([k,n])=>({ type:'c', k, need:Math.round(n*(1 + loop*0.3)), got:0, bump:0 }));
+  if(L.anchors) dots.goals.push({ type:'anchor', need:L.anchors, got:0, bump:0 });
+  if(iceTotal) dots.goals.push({ type:'ice', need:iceTotal, got:0, bump:0 });
+  if(wallTotal) dots.goals.push({ type:'wall', need:wallTotal, got:0, bump:0 });
+  // starting anchors sit in the top row
+  if(L.anchors){
+    const cols = [...Array(dots.cols).keys()].filter(c=>dots.grid[c][0].t === 'dot').sort(()=>Math.random()-0.5);
+    cols.slice(0, Math.min(2, L.anchors)).forEach(c=>{ dots.grid[c][0] = newAnchor(dots.grid[c][0].dy); });
   }
   dotsEnsureMoves();
-  dots.path = []; dots.square = false; dots.dragging = false; dots.ptr = null; dots.done = false; dots.camHand = -1;
+  dots.path = []; dots.square = false; dots.dragging = false; dots.ptr = null; dots.done = false; dots.failed = false; dots.camHand = -1;
   dots.hint = null; dots.rings = []; dots.ghosts = []; dots.sqFlash = 0; dots.dwell = [0,0]; dots.dwellDot = [null,null];
   dots.lastMove = dots.lastHint = performance.now();
   dotsLayout();
   $('#msg').style.color = '#ff6b9a';
-  const names = dots.goals.map(g=>DOT_COLS[g.k].name.toLowerCase());
+  flash('Level ' + (dots.lv + 1) + ': ' + L.name, 2.2);
   if(input === 'camera') loadHands();
-  if(dots.lv === 0 && input === 'camera') say('Open your hand to find a dot. Squeeze to grab it, then pull to the same color!', true);
-  else if(dots.lv === 0) say('Connect the dots! Find two the same color.', true);
-  else if(dots.squareLv) say('Make a square to pop them all!', true);
-  else say('Get the ' + listWords(names) + ' dots!', true);
   dMusicStart();
 }
 function dotAt(x, y, tol){
   const c = Math.floor((x - dots.ox)/dots.cs), r = Math.floor((y - dots.oy)/dots.cs);
   if(c < 0 || r < 0 || c >= dots.cols || r >= dots.rows) return null;
+  if(!isDot(c, r)) return null;
   if(Math.hypot(x - dcx(c), y - dcy(r)) > dots.cs*tol) return null;
   return { c, r };
 }
@@ -2704,7 +2733,7 @@ function dotsStep(x, y){
   if(inPath){
     dots.square = true; dots.sqK = k; dots.sqFlash = 1;
     dotSquareSound();
-    for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(dots.grid[c][r].k === k) dotRing({ c, r });
+    for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(isDot(c, r) && dots.grid[c][r].k === k) dotRing({ c, r });
   } else { dotNote(P.length-1); dotRing(d); }
 }
 function dotsTraceTo(x, y){
@@ -2714,14 +2743,51 @@ function dotsTraceTo(x, y){
   dots.ptr = { x, y };
 }
 function dotsCancel(){ dots.path = []; dots.square = false; dots.dragging = false; dots.camHand = -1; dots.ptr = null; }
+// walls stay put; everything else falls into the open spots below it, new dots (and anchors) drop in on top
 function dotsCollapse(set, avoid){
+  const ag = dots.goals.find(g=>g.type === 'anchor');
+  let onBoard = anchorsOnBoard();
   for(let c=0;c<dots.cols;c++){
-    const col = dots.grid[c], keep = [];
-    for(let r=dots.rows-1;r>=0;r--) if(!set.has(c*100 + r)) keep.push({ d:col[r], from:r });
-    let r = dots.rows - 1;
-    for(const s of keep){ s.d.dy += r - s.from; col[r] = s.d; r--; }
-    const empties = r + 1;
-    for(; r>=0; r--) col[r] = { k:dotPick(avoid), dy:empties + 0.3, v:0, sq:0 };
+    const col = dots.grid[c], keep = [], slots = [];
+    for(let r=dots.rows-1;r>=0;r--){
+      if(col[r].t === 'wall' && !set.has(c*100 + r)) continue;
+      slots.push(r);
+      if(!set.has(c*100 + r)) keep.push({ d:col[r], from:r });
+    }
+    let i = 0;
+    for(const s of keep){ const r = slots[i++]; s.d.dy += r - s.from; col[r] = s.d; }
+    const empties = slots.length - keep.length;
+    for(; i<slots.length; i++){
+      const r = slots[i];
+      const wantAnchor = ag && ag.need - ag.got - onBoard > 0 && onBoard < 2 && Math.random() < 0.3;
+      if(wantAnchor){ col[r] = newAnchor(empties + 0.3); onBoard++; }
+      else col[r] = newDot(avoid, empties + 0.3);
+    }
+  }
+}
+function dotsDropAnchors(){
+  const ag = dots.goals.find(g=>g.type === 'anchor');
+  if(!ag) return;
+  for(let pass=0; pass<6; pass++){
+    const set = new Set();
+    for(let c=0;c<dots.cols;c++){
+      // an anchor is home when nothing but walls is below it
+      for(let r=dots.rows-1;r>=0;r--){
+        const d = dots.grid[c][r];
+        if(d.t === 'wall') continue;
+        if(d.t === 'anchor') set.add(c*100 + r);
+        break;
+      }
+    }
+    if(!set.size) return;
+    for(const key of set){
+      const c = Math.floor(key/100), r = key % 100, x = dcx(c), y = dcy(r);
+      dots.ghosts.push({ x, y, k:-1, life:0.5 });
+      for(let i=0;i<10;i++){ const a = Math.random()*7, v = rnd(150,340)*dots.u; bits.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 120*dots.u, life:rnd(0.5,0.8), c:i%2 ? '#5b6478' : '#ffd23b', s:rnd(6,10)*dots.u, rot:0, vr:rnd(-8,8), g:0.4 }); }
+    }
+    ag.got = Math.min(ag.need, ag.got + set.size); ag.bump = 1;
+    dotAnchorSound();
+    dotsCollapse(set, -1);
   }
 }
 function dotsRelease(){
@@ -2730,44 +2796,64 @@ function dotsRelease(){
   if(P.length < 2) return;
   const k = dots.grid[P[0].c][P[0].r].k, col = DOT_COLS[k];
   const set = new Set();
-  if(sq){ for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(dots.grid[c][r].k === k) set.add(c*100 + r); }
+  if(sq){ for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++) if(isDot(c, r) && dots.grid[c][r].k === k) set.add(c*100 + r); }
   else P.forEach(p=>set.add(p.c*100 + p.r));
-  for(const key of set){
+  const cleared = set.size;
+  let iceBroke = 0, wallsBroke = 0;
+  const hitWalls = new Set();
+  for(const key of [...set]){
     const c = Math.floor(key/100), r = key % 100, x = dcx(c), y = dcy(r);
     dots.ghosts.push({ x, y, k, life:0.35 });
     for(let i=0;i<6;i++){ const a = Math.random()*7, v = rnd(120,300)*dots.u; bits.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 100*dots.u, life:rnd(0.4,0.7), c:col.c, s:rnd(6,10)*dots.u, rot:0, vr:rnd(-8,8), g:0.4 }); }
+    // ice under the dot cracks
+    if(dots.ice[c][r] > 0){
+      dots.ice[c][r]--; if(!dots.ice[c][r]) iceBroke++;
+      for(let i=0;i<5;i++){ const a = Math.random()*7, v = rnd(100,260)*dots.u; bits.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 80*dots.u, life:rnd(0.4,0.7), c:'#bfe6ff', s:rnd(6,11)*dots.u, rot:0, vr:rnd(-8,8), g:0.5 }); }
+    }
+    // boxes next to a cleared dot get bumped
+    for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const c2 = c+dc, r2 = r+dr;
+      if(c2 < 0 || r2 < 0 || c2 >= dots.cols || r2 >= dots.rows) continue;
+      const w = dots.grid[c2][r2], wk = c2*100 + r2;
+      if(w.t !== 'wall' || hitWalls.has(wk)) continue;
+      hitWalls.add(wk); w.hp--; w.sq = 0.3;
+      for(let i=0;i<5;i++){ const a = Math.random()*7, v = rnd(100,250)*dots.u; bits.push({ x:dcx(c2), y:dcy(r2), vx:Math.cos(a)*v, vy:Math.sin(a)*v - 80*dots.u, life:rnd(0.4,0.7), c:'#b07a45', s:rnd(6,11)*dots.u, rot:0, vr:rnd(-8,8), g:0.5 }); }
+      if(w.hp <= 0){ set.add(wk); wallsBroke++; dots.ghosts.push({ x:dcx(c2), y:dcy(r2), k:-2, life:0.35 }); }
+    }
   }
-  const goal = dots.goals.find(g=>g.k === k);
+  const goal = dots.goals.find(g=>g.type === 'c' && g.k === k);
   const wasDone = goal && goal.got >= goal.need;
-  if(goal && !wasDone){ goal.got = Math.min(goal.need, goal.got + set.size); goal.bump = 1; }
+  if(goal && !wasDone){ goal.got = Math.min(goal.need, goal.got + cleared); goal.bump = 1; }
+  const gi = dots.goals.find(g=>g.type === 'ice'); if(gi && iceBroke){ gi.got = Math.min(gi.need, gi.got + iceBroke); gi.bump = 1; }
+  const gw = dots.goals.find(g=>g.type === 'wall'); if(gw && wallsBroke){ gw.got = Math.min(gw.need, gw.got + wallsBroke); gw.bump = 1; }
+  dots.moves = Math.max(0, dots.moves - 1);
   dotsCollapse(set, sq ? k : -1);
+  dotsDropAnchors();
   dotsEnsureMoves();
-  dotClearSound(set.size);
+  dotClearSound(cleared);
   dots.lastMove = now; dots.hint = null;
   if(dots.goals.every(g=>g.got >= g.need)){
     dots.done = true; dots.doneT = now; dots.stars++;
-    guy.spinT = 0.8; dotWinSound();
-    say('You did it! Hooray!', true); flash('You did it!', 2.5);
+    dotWinSound();
+    flash(dots.moves ? 'You did it! ' + dots.moves + ' moves to spare!' : 'You did it!', 2.5);
     for(let i=0;i<120;i++){ const c2 = DOT_COLS[i % DOT_COLS.length].c; bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:c2, s:rnd(6,12)*dots.u, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 }); }
-  } else if(sq){
-    guy.spinT = 0.8; say('A square! All the ' + col.name.toLowerCase() + ' ones!', true);
-  } else if(goal && !wasDone && goal.got >= goal.need){
-    guy.spinT = 0.8; say('All done with ' + col.name.toLowerCase() + '!', true);
-  } else if(set.size >= 5){
-    guy.spinT = 0.8; say('Wow! So many!', true);
-  } else if(Math.random() < 0.35){
-    const yes = ['Yay!', 'Pop pop!', 'Nice!', col.name + '!'];
-    say(yes[Math.floor(Math.random()*yes.length)]);
+  } else if(dots.moves <= 0){
+    dots.failed = true; dots.failT = now;
+    flash('Out of moves! Try again!', 2.8);
+    dotFailSound();
+  } else if(dots.moves === 3){
+    flash('3 moves left!', 1.5);
   }
 }
 function dotsFindPair(){
-  const g = dots.grid, wanted = dots.goals.filter(q=>q.got < q.need).map(q=>q.k);
+  const g = dots.grid, wanted = dots.goals.filter(q=>q.type === 'c' && q.got < q.need).map(q=>q.k);
   let any = null;
   for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    if(g[c][r].t !== 'dot') continue;
     const k = g[c][r].k;
     for(const [dc,dr] of [[1,0],[0,1]]){
       const c2 = c+dc, r2 = r+dr;
-      if(c2 >= dots.cols || r2 >= dots.rows || g[c2][r2].k !== k) continue;
+      if(c2 >= dots.cols || r2 >= dots.rows || g[c2][r2].t !== 'dot' || g[c2][r2].k !== k) continue;
       const pair = [{c,r},{c:c2,r:r2}];
       if(wanted.includes(k)) return pair;
       any = any || pair;
@@ -2776,7 +2862,7 @@ function dotsFindPair(){
   return any;
 }
 addEventListener('pointerdown', e=>{
-  if(!(state === 'play' && game === 'dots') || dots.done || dots.camHand >= 0) return;
+  if(!(state === 'play' && game === 'dots') || dots.done || dots.failed || dots.camHand >= 0) return;
   const d = dotAt(e.clientX, e.clientY, 0.55);
   if(!d) return;
   audio(); dots.dragging = true; dotsBegin(d, e.clientX, e.clientY);
@@ -2887,6 +2973,10 @@ function updateDots(dt, now, fresh){
     if(now - dots.doneT > 4500){ dots.lv++; startDots(); }
     return;
   }
+  if(dots.failed){
+    if(now - dots.failT > 3200) startDots();   // same level again
+    return;
+  }
 
   if(input === 'camera' && hnd.lm){
     dotsHandInput(now);
@@ -2977,9 +3067,21 @@ function drawDots(t){
   // the dots (clipped so new ones slide in from the top of the board)
   ctx.save();
   ctx.beginPath(); ctx.rect(0, dots.oy - cs*0.05, W, H); ctx.clip();
+  // ice sits under the dots
+  for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
+    const n = dots.ice[c][r]; if(!n) continue;
+    const x = dcx(c), y = dcy(r), h = cs*0.46;
+    ctx.fillStyle = n > 1 ? 'rgba(110,185,240,.75)' : 'rgba(160,215,255,.6)';
+    ctx.beginPath(); ctx.roundRect(x - h, y - h, h*2, h*2, cs*0.14); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3*u; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - h*0.7, y - h*0.35); ctx.lineTo(x - h*0.35, y - h*0.7); ctx.stroke();
+    if(n > 1){ ctx.beginPath(); ctx.moveTo(x + h*0.35, y + h*0.7); ctx.lineTo(x + h*0.7, y + h*0.35); ctx.stroke(); }
+  }
   for(let c=0;c<dots.cols;c++) for(let r=0;r<dots.rows;r++){
     const d = dots.grid[c][r], key = c*100 + r;
     const x = dcx(c), y = dcy(r) - d.dy*cs;
+    if(d.t === 'wall'){ drawDotWall(x, y, cs, d); continue; }
+    if(d.t === 'anchor'){ drawDotAnchor(x, y, R*1.05, d); continue; }
     let s = 1;
     if(inPath.has(key) || (dots.square && d.k === pk)) s = 1.15 + Math.sin(t*10)*0.04;
     else if(hint && hint.has(key)) s = 1 + Math.abs(Math.sin(t*5))*0.22;
@@ -2991,7 +3093,7 @@ function drawDots(t){
   ctx.restore();
   for(const g of dots.ghosts){
     const p = 1 - g.life/0.35;
-    ctx.globalAlpha = 1 - p; ctx.fillStyle = DOT_COLS[g.k].c;
+    ctx.globalAlpha = 1 - p; ctx.fillStyle = g.k === -1 ? '#5b6478' : g.k === -2 ? '#b07a45' : DOT_COLS[g.k].c;
     ctx.beginPath(); ctx.arc(g.x, g.y, R*(1 + p*0.8), 0, 7); ctx.fill();
   }
   for(const r of dots.rings){
@@ -3009,16 +3111,33 @@ function drawDots(t){
     ctx.save(); ctx.translate(x, gy); ctx.scale(k, k);
     ctx.lineWidth = 7*u; ctx.strokeStyle = 'rgba(0,0,0,.08)';
     ctx.beginPath(); ctx.arc(0, 0, gr + 9*u, 0, 7); ctx.stroke();
-    ctx.strokeStyle = DOT_COLS[g.k].c;
+    const gc = g.type === 'c' ? DOT_COLS[g.k].c : g.type === 'anchor' ? '#5b6478' : g.type === 'ice' ? '#6cb8f0' : '#b07a45';
+    ctx.strokeStyle = gc;
     ctx.beginPath(); ctx.arc(0, 0, gr + 9*u, -Math.PI/2, -Math.PI/2 + Math.PI*2*g.got/g.need); ctx.stroke();
-    ctx.fillStyle = DOT_COLS[g.k].c;
-    ctx.beginPath(); ctx.arc(0, 0, gr, 0, 7); ctx.fill();
+    if(g.type === 'anchor') drawDotAnchor(0, 0, gr, {});
+    else if(g.type === 'wall') drawDotWall(0, 0, gr*2.1, { hp:1 });
+    else if(g.type === 'ice'){ ctx.fillStyle = gc; ctx.beginPath(); ctx.roundRect(-gr, -gr, gr*2, gr*2, gr*0.35); ctx.fill(); }
+    else { ctx.fillStyle = gc; ctx.beginPath(); ctx.arc(0, 0, gr, 0, 7); ctx.fill(); }
+    if(g.type !== 'c'){ ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(0, 0, gr*0.72, 0, 7); ctx.fill(); }
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = `800 ${gr*1.15}px "Baloo 2", sans-serif`;
     ctx.fillText(done ? '✓' : String(g.need - g.got), 0, gr*0.08);
     ctx.restore();
   });
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
+  // moves left
+  {
+    const mx = Math.max(gr*1.6, dots.ox - gr*0.2), low = dots.moves <= 3 && !dots.done;
+    const k = low ? 1 + Math.abs(Math.sin(t*5))*0.12 : 1;
+    ctx.save(); ctx.translate(mx, gy); ctx.scale(k, k);
+    ctx.fillStyle = low ? '#ff4f5e' : '#3d4466';
+    ctx.beginPath(); ctx.roundRect(-gr*1.25, -gr*1.15, gr*2.5, gr*2.3, gr*0.5); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `800 ${gr*1.15}px "Baloo 2", sans-serif`; ctx.fillText(String(dots.moves), 0, -gr*0.12);
+    ctx.font = `800 ${gr*0.42}px "Baloo 2", sans-serif`; ctx.fillText('MOVES', 0, gr*0.72);
+    ctx.restore(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
 
   // stars for finished levels
   if(dots.stars){
@@ -3030,6 +3149,24 @@ function drawDots(t){
     ctx.fillText(String(dots.stars), x - r*1.3, y + r*0.1);
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
+}
+
+function drawDotWall(x, y, cs, d){
+  const h = cs*0.4 + (d.sq || 0)*cs*0.05, u = dots.u;
+  ctx.fillStyle = d.hp > 1 ? '#7a4f26' : '#b07a45';
+  ctx.beginPath(); ctx.roundRect(x - h, y - h, h*2, h*2, h*0.25); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = Math.max(2, h*0.08);
+  ctx.beginPath(); ctx.moveTo(x - h*0.75, y - h*0.3); ctx.lineTo(x + h*0.75, y - h*0.3); ctx.moveTo(x - h*0.75, y + h*0.3); ctx.lineTo(x + h*0.75, y + h*0.3); ctx.stroke();
+  if(d.hp > 1){ ctx.strokeStyle = '#ffd23b'; ctx.lineWidth = Math.max(2, h*0.1); ctx.strokeRect(x - h*0.8, y - h*0.8, h*1.6, h*1.6); }
+}
+function drawDotAnchor(x, y, R, d){
+  const s = 1 + (d.sq || 0)*0.5;
+  ctx.fillStyle = '#5b6478'; ctx.beginPath(); ctx.arc(x, y, R*s, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = R*0.16; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y - R*0.5, R*0.16, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y - R*0.34); ctx.lineTo(x, y + R*0.58);
+  ctx.moveTo(x - R*0.3, y - R*0.12); ctx.lineTo(x + R*0.3, y - R*0.12); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y + R*0.05, R*0.52, 0.35, Math.PI - 0.35); ctx.stroke();
 }
 
 /* ---------- SILLY DOTS music: soft pads, dMallet twinkles, notes that climb as you connect ---------- */
@@ -3147,6 +3284,16 @@ function dotClearSound(n){
     g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.13, t0 + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
     o.connect(g).connect(dmus.fx); o.start(t0); o.stop(t0 + 0.2);
   }
+}
+function dotAnchorSound(){
+  if(!ac || !dmus.out) return;
+  const at = ac.currentTime;
+  [48,55,60,67].forEach((m,i)=>dMallet(at + i*0.06, m, 0.16, dmus.fx, 0.5));
+}
+function dotFailSound(){
+  if(!ac || !dmus.out) return;
+  const at = ac.currentTime;
+  [67,64,60,55].forEach((m,i)=>dMallet(at + i*0.16, m, 0.12, dmus.fx, 0.6));
 }
 function dotWinSound(){
   if(!ac || !dmus.out) return;
