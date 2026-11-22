@@ -76,6 +76,7 @@ body:not(.touch) .tch{display:none!important}
     <button class="card" data-game="puzzle"><span class="ic">🧩</span>Puzzle</button>
     <button class="card" data-game="marble"><span class="ic">🔮</span>Marble Race</button>
     <button class="card" data-game="dots"><span class="ic">🔴</span>Silly Dots</button>
+    <button class="card" data-game="draw"><span class="ic">🖍️</span>Draw</button>
     <a class="card" href="land/" style="text-decoration:none"><span class="ic">🗺️</span>Silly Guy Land</a>
   </div>
   <p id="how"></p>
@@ -186,6 +187,7 @@ const HOW = {
   me: 'You are the silly guy! Flap and flop to puff him up and start the music. Stop moving and he flops over. Clap to change him!',
   fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
+  draw: 'Paint in the air with your hands. Touch a paint pot to change color. Trace the shape. Jump for a new page.',
   puzzle: 'Hold your hand on a piece to pick it up, then carry it to where it goes!',
   marble: 'Tip your arms like an airplane to steer your marble. Flap to go fast. Jump to hop. Pop bubbles and race into the funnel!',
   dots: 'Open hand to point, squeeze into a fist to grab a dot, drag through the same color, open to let go. Make a square to pop them all!',
@@ -275,7 +277,7 @@ if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = pickVoice; pi
 let lastSpeak = 0;
 function say(text, force=false){
   if(!('speechSynthesis' in window)) return;
-  if(game === 'dots'){ speechSynthesis.cancel(); return; }  // Silly Dots plays without talking
+  if(game === 'dots' || game === 'draw'){ speechSynthesis.cancel(); return; }  // Silly Dots plays without talking
   const now = performance.now();
   if(!force && (speechSynthesis.speaking || now-lastSpeak < 1200)) return;
   if(force) speechSynthesis.cancel();
@@ -541,6 +543,7 @@ function initClouds(){
 resetGuy(true); initClouds();
 
 function enterStar(){
+  if(game === 'draw'){ startPlay(); return; }
   state = 'star'; starHold = 0;
   resetGuy(true);
   setMsg('Stand like a star!');
@@ -559,10 +562,11 @@ function startPlay(){
   else if(game === 'marble'){ mr.level = 0; mrStart(); }
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
   else if(game === 'dots'){ dots.lv = 0; dots.stars = 0; startDots(); }
+  else if(game === 'draw'){ startDraw(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
   else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; startBubbleMusic(); say('Pop the bubbles with your hands!', true); }
   lastTip = performance.now();
-  $('#hudMusic').style.display = game === 'dots' ? '' : 'none';
+  $('#hudMusic').style.display = (game === 'dots' || game === 'draw') ? '' : 'none';
   updatePreviewVis();
 }
 function doLoop(){
@@ -580,7 +584,7 @@ function update(dt, now){
   let dirL = { x:-0.6, y:0.8 }, dirR = { x:0.6, y:0.8 };
 
   leanF = 0;
-  if(sig.clap){ sig.clap = false; if((state === 'play' || state === 'star') && game !== 'marble') clap(); }
+  if(sig.clap){ sig.clap = false; if((state === 'play' || state === 'star') && game !== 'marble' && game !== 'draw') clap(); }
   if(state === 'play' && game === 'me'){
     const r = updateMe(dt, now, fresh);
     dirL = r.dirL; dirR = r.dirR; lift = r.lift;
@@ -593,6 +597,8 @@ function update(dt, now){
   } else if(state === 'play' && game === 'marble'){
     updateMarble(dt, now, fresh);
     dirL = mr.dirL; dirR = mr.dirR;
+  } else if(state === 'play' && game === 'draw'){
+    updateDraw(dt, now, fresh);
   } else if(state === 'play' && game === 'dots'){
     updateDots(dt, now, fresh);
     dirL = dots.dirL; dirR = dots.dirR;
@@ -940,6 +946,9 @@ function draw(now){
   if(game === 'marble' && state === 'play'){
     drawMarble(t);
     drawMarbleHUD(t);
+  } else if(game === 'draw' && state === 'play'){
+    drawDrawGame(t);
+    drawHands(t);
   } else if(game === 'dots' && state === 'play'){
     drawDotsBG(t);
     drawDots(t);
@@ -1103,7 +1112,7 @@ function drawBubbles(t){
   }
 }
 function drawHands(t){
-  for(const h of (game === 'band' ? band.hands : game === 'puzzle' ? puz.hands : game === 'dots' ? dots.hands : bub.hands)){
+  for(const h of (game === 'band' ? band.hands : game === 'puzzle' ? puz.hands : game === 'dots' ? dots.hands : game === 'draw' ? drw.hands : bub.hands)){
     if(h.x < -100) continue;
     ctx.save(); ctx.translate(h.x, h.y);
     ctx.fillStyle = h.c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S;
@@ -1131,6 +1140,155 @@ function drawBubbleRow(){
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
     ctx.fillStyle = i < n ? COLORS[i%COLORS.length].c : 'rgba(255,255,255,.35)'; ctx.fill();
   }
+}
+
+/* ---------- DRAW ---------- */
+const POTS = ['#ff3b4e','#ff8a2b','#ffd23b','#3bd16a','#3b8bff','#a35bff','#ff6fcf','#7a4a24','rainbow'];
+const SHAPES = ['circle','heart','star','square','triangle','smile','house','sun'];
+const drw = { paper:null, hands:[], col:['#3b8bff','#ff3b4e'], prev:[null,null], hue:[0,180], shape:null, pts:[], done:false,
+  shapeI:0, gallery:[], sparks:[], slide:0, oldPaper:null, mouseDown:false, lastNote:0, lastJump:0 };
+addEventListener('pointerdown', e=>{ if(state === 'play' && game === 'draw' && input === 'keys'){ drw.mouseDown = true; drw.prev[1] = null; const p = potAt(e.clientX, e.clientY); if(p >= 0) pickPot(1, p); } });
+addEventListener('pointerup', ()=>{ drw.mouseDown = false; drw.prev[1] = null; });
+addEventListener('keydown', e=>{ if(state === 'play' && game === 'draw' && e.key === ' '){ newPage(); e.preventDefault(); } });
+function potPos(i){ const n = POTS.length, left = 360, gap = Math.min(110*S, (W - left - 20)/n); return { x: (left + W - 20)/2 + (i - (n-1)/2)*gap, y: 62*S, r: Math.min(34*S, gap*0.42) }; }
+function potAt(x, y){ for(let i=0;i<POTS.length;i++){ const p = potPos(i); if(Math.hypot(x-p.x, y-p.y) < p.r + 18*S) return i; } return -1; }
+function pickPot(h, i){
+  if(drw.col[h] === POTS[i]) return;
+  drw.col[h] = POTS[i];
+  if(ac && dmus.out) dMallet(ac.currentTime, DPENTA[i % DPENTA.length], 0.16, dmus.fx, 0.5);
+  const p = potPos(i);
+  for(let k=0;k<10;k++){ const a = Math.random()*7, v = rnd(60,180)*S; drw.sparks.push({ x:p.x, y:p.y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:0.7, c: POTS[i] === 'rainbow' ? `hsl(${k*36},90%,60%)` : POTS[i] }); }
+}
+function makePaper(){ const c = document.createElement('canvas'); c.width = Math.round(W*DPR); c.height = Math.round(H*DPR); const x = c.getContext('2d'); x.setTransform(DPR,0,0,DPR,0,0); return c; }
+function shapePoints(kind){
+  const cx = W/2, cy = H*0.55, R = Math.min(W, H)*0.26, pts = [];
+  const add = (x,y)=>pts.push({ x, y, hit:false });
+  const seg = (a,b,n)=>{ for(let i=0;i<n;i++){ const t = i/n; add(lerp(a[0],b[0],t), lerp(a[1],b[1],t)); } };
+  if(kind === 'circle' || kind === 'sun'){ for(let i=0;i<48;i++){ const a = i/48*Math.PI*2; add(cx + Math.cos(a)*R*(kind==='sun'?0.6:1), cy + Math.sin(a)*R*(kind==='sun'?0.6:1)); }
+    if(kind === 'sun') for(let k=0;k<8;k++){ const a = k/8*Math.PI*2; seg([cx+Math.cos(a)*R*0.75, cy+Math.sin(a)*R*0.75],[cx+Math.cos(a)*R*1.1, cy+Math.sin(a)*R*1.1],4); } }
+  else if(kind === 'heart'){ for(let i=0;i<56;i++){ const t = i/56*Math.PI*2; add(cx + R*0.06*16*Math.pow(Math.sin(t),3), cy - R*0.06*(13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t)) ); } }
+  else if(kind === 'star'){ const v = []; for(let k=0;k<10;k++){ const a = -Math.PI/2 + k*Math.PI/5, r = k%2 ? R*0.45 : R; v.push([cx + Math.cos(a)*r, cy + Math.sin(a)*r]); } for(let k=0;k<10;k++) seg(v[k], v[(k+1)%10], 6); }
+  else if(kind === 'square'){ const v = [[cx-R,cy-R],[cx+R,cy-R],[cx+R,cy+R],[cx-R,cy+R]]; for(let k=0;k<4;k++) seg(v[k], v[(k+1)%4], 12); }
+  else if(kind === 'triangle'){ const v = [[cx,cy-R],[cx+R*1.1,cy+R*0.8],[cx-R*1.1,cy+R*0.8]]; for(let k=0;k<3;k++) seg(v[k], v[(k+1)%3], 16); }
+  else if(kind === 'smile'){ for(let i=0;i<48;i++){ const a = i/48*Math.PI*2; add(cx + Math.cos(a)*R, cy + Math.sin(a)*R); }
+    for(let i=0;i<=16;i++){ const a = 0.35 + i/16*(Math.PI-0.7); add(cx + Math.cos(a)*R*0.55, cy + Math.sin(a)*R*0.55); }
+    for(const sx of [-1,1]) for(let i=0;i<8;i++){ const a = i/8*Math.PI*2; add(cx + sx*R*0.38 + Math.cos(a)*R*0.1, cy - R*0.3 + Math.sin(a)*R*0.1); } }
+  else if(kind === 'house'){ const v = [[cx-R,cy-R*0.1],[cx,cy-R],[cx+R,cy-R*0.1],[cx+R*0.8,cy-R*0.1],[cx+R*0.8,cy+R*0.9],[cx-R*0.8,cy+R*0.9],[cx-R*0.8,cy-R*0.1]]; for(let k=0;k<7;k++) seg(v[k], v[(k+1)%7], 9); }
+  return pts;
+}
+function startDraw(){
+  setMsg(''); dMusicStart();
+  drw.paper = makePaper(); drw.oldPaper = null; drw.slide = 0;
+  drw.col = ['#3b8bff','#ff3b4e']; drw.prev = [null,null];
+  drw.shapeI = Math.floor(Math.random()*SHAPES.length); drw.shape = SHAPES[drw.shapeI]; drw.pts = shapePoints(drw.shape); drw.done = false;
+}
+function newPage(){
+  if(performance.now() - drw.lastJump < 1200) return;
+  drw.lastJump = performance.now();
+  // keep a little copy of the drawing on the fridge
+  const th = document.createElement('canvas'); th.width = 160; th.height = Math.round(160*H/W);
+  const tx = th.getContext('2d'); tx.fillStyle = '#fffdf6'; tx.fillRect(0,0,th.width,th.height); tx.drawImage(drw.paper, 0, 0, th.width, th.height);
+  drw.gallery.push(th); if(drw.gallery.length > 6) drw.gallery.shift();
+  drw.oldPaper = drw.paper; drw.slide = 1;
+  drw.paper = makePaper(); drw.prev = [null,null];
+  drw.shapeI = (drw.shapeI + 1 + Math.floor(Math.random()*(SHAPES.length-1))) % SHAPES.length;
+  drw.shape = SHAPES[drw.shapeI]; drw.pts = shapePoints(drw.shape); drw.done = false;
+  if(ac) tone(300, 700, 0.5, 'sine', 0.08);
+}
+function paintSeg(h, a, b, t){
+  const x = drw.paper.getContext('2d');
+  let col = drw.col[h];
+  if(col === 'rainbow'){ drw.hue[h] = (drw.hue[h] + Math.hypot(b.x-a.x, b.y-a.y)*0.4) % 360; col = `hsl(${drw.hue[h]},90%,58%)`; }
+  x.strokeStyle = col; x.lineWidth = 26*S; x.lineCap = 'round'; x.lineJoin = 'round';
+  x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke();
+  if(Math.random() < 0.35) drw.sparks.push({ x:b.x + rnd(-14,14)*S, y:b.y + rnd(-14,14)*S, vx:rnd(-20,20)*S, vy:rnd(-40,-10)*S, life:0.8, c:'#fff' });
+  // trace the shape
+  if(!drw.done){
+    const len = Math.hypot(b.x-a.x, b.y-a.y), steps = Math.max(1, Math.ceil(len/(10*S)));
+    for(let k=0;k<=steps;k++){
+      const px = lerp(a.x, b.x, k/steps), py = lerp(a.y, b.y, k/steps);
+      for(const p of drw.pts) if(!p.hit && Math.hypot(p.x-px, p.y-py) < 34*S){ p.hit = true; }
+    }
+    const got = drw.pts.filter(p=>p.hit).length / drw.pts.length;
+    if(got >= 0.85) shapeDone();
+  }
+}
+function shapeDone(){
+  drw.done = true;
+  if(ac && dmus.out){ DPENTA.slice(0,6).forEach((m,i)=>dMallet(ac.currentTime + i*0.12, m + 12, 0.14, dmus.fx, 0.6)); }
+  for(const p of drw.pts) for(let k=0;k<2;k++){ const a = Math.random()*7, v = rnd(40,140)*S; drw.sparks.push({ x:p.x, y:p.y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.8,1.4), c:['#ffd23b','#fff','#ff6fcf','#4dd2ff'][k+Math.floor(Math.random()*2)] }); }
+}
+function updateDraw(dt, now, fresh){
+  const t = now/1000;
+  drw.hands = [];
+  if(drw.slide > 0) drw.slide = Math.max(0, drw.slide - dt*1.6);
+  const hands = [];
+  if(input === 'camera' && fresh && sig.pts){
+    hands.push(toScreen(sig.pts.L.w), toScreen(sig.pts.R.w));
+    if(sig.jump){ sig.jump = false; newPage(); }
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'keys'){
+    hands.push(null, { x:mouse.x, y:mouse.y });
+  } else if(input === 'camera' && now - lastPoseT > 1500){
+    if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+  }
+  hands.forEach((h, i)=>{
+    if(!h){ drw.prev[i] = null; return; }
+    const col = drw.col[i] === 'rainbow' ? `hsl(${(drw.hue[i] + t*120) % 360},90%,58%)` : drw.col[i];
+    drw.hands.push({ x:h.x, y:h.y, c:col, side: i ? 1 : -1 });
+    const pot = potAt(h.x, h.y);
+    const inPots = h.y < 110*S;
+    if(pot >= 0) pickPot(i, pot);
+    const painting = !inPots && (input === 'camera' || drw.mouseDown);
+    if(painting && drw.prev[i]){
+      const d = Math.hypot(h.x - drw.prev[i].x, h.y - drw.prev[i].y);
+      if(d > 1.5*S && d < 400*S) paintSeg(i, drw.prev[i], h, t);
+      if(d > 30*S && ac && dmus.out && now - drw.lastNote > 450 && dmus.on){
+        drw.lastNote = now;
+        dMallet(ac.currentTime, DPENTA[Math.floor(clamp(1 - h.y/H, 0, 0.99)*DPENTA.length)], 0.06, dmus.fx, 0.6);
+      }
+    }
+    drw.prev[i] = painting ? { x:h.x, y:h.y } : null;
+  });
+  for(const p of drw.sparks){ p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; }
+  drw.sparks = drw.sparks.filter(p=>p.life > 0);
+}
+function drawDrawGame(t){
+  ctx.fillStyle = '#fffdf6'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(200,180,140,.07)';
+  for(let i=0;i<40;i++){ ctx.fillRect((i*131 % 997)/997*W, (i*257 % 991)/991*H, 3*S, 3*S); }
+  // tracing shape, dotted and faint
+  for(const p of drw.pts){
+    ctx.fillStyle = drw.done ? `rgba(255,200,40,${0.5 + Math.sin(t*4 + p.x*0.02)*0.3})` : (p.hit ? 'rgba(120,200,120,.35)' : 'rgba(150,150,170,.45)');
+    ctx.beginPath(); ctx.arc(p.x, p.y, (drw.done ? 7 : 6)*S, 0, 7); ctx.fill();
+  }
+  if(drw.paper) ctx.drawImage(drw.paper, 0, 0, W, H);
+  if(drw.oldPaper && drw.slide > 0){
+    const k = 1 - drw.slide, ox = -k*k*W*1.1;
+    ctx.save(); ctx.translate(ox, -k*60*S); ctx.rotate(-k*0.15);
+    ctx.fillStyle = '#fffdf6'; ctx.fillRect(0,0,W,H); ctx.drawImage(drw.oldPaper, 0, 0, W, H);
+    ctx.restore();
+  }
+  // paint pots
+  for(let i=0;i<POTS.length;i++){
+    const p = potPos(i), sel = drw.col.includes(POTS[i]);
+    ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + p.r*0.9, p.r, p.r*0.3, 0, 0, 7); ctx.fill();
+    if(POTS[i] === 'rainbow'){
+      for(let k=0;k<6;k++){ ctx.fillStyle = `hsl(${k*60 + t*60},90%,60%)`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.arc(p.x, p.y, p.r, k*Math.PI/3, (k+1)*Math.PI/3); ctx.fill(); }
+    } else { ctx.fillStyle = POTS[i]; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
+    ctx.lineWidth = (sel ? 7 : 4)*S; ctx.strokeStyle = sel ? '#24203a' : '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r*(sel ? 1.08 + Math.sin(t*3)*0.03 : 1), 0, 7); ctx.stroke();
+  }
+  for(const p of drw.sparks){ ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, 4*S, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  // fridge: little copies of past drawings
+  drw.gallery.forEach((g, i)=>{
+    const w = 110*S, h = w*g.height/g.width, x = 20*S + i*(w + 14*S), y = H - h - 16*S;
+    ctx.save(); ctx.translate(x + w/2, y + h/2); ctx.rotate((i%2 ? 1 : -1)*0.04);
+    ctx.fillStyle = 'rgba(0,0,0,.15)'; ctx.fillRect(-w/2 + 4*S, -h/2 + 5*S, w, h);
+    ctx.drawImage(g, -w/2, -h/2, w, h); ctx.strokeStyle = '#fff'; ctx.lineWidth = 5*S; ctx.strokeRect(-w/2, -h/2, w, h);
+    ctx.fillStyle = COLORS[i % COLORS.length].c; ctx.beginPath(); ctx.arc(0, -h/2, 7*S, 0, 7); ctx.fill();
+    ctx.restore();
+  });
 }
 
 /* ---------- PUZZLE ---------- */
@@ -3243,7 +3401,7 @@ function dToggleMusic(){
 $('#hudMusic').onclick = dToggleMusic;
 $('#hudMusic').textContent = 'Music: ' + (dmus.on ? 'on' : 'off');
 setInterval(()=>{
-  if(!(state === 'play' && game === 'dots' && ac && dmus.out && dmus.on)) return;
+  if(!(state === 'play' && (game === 'dots' || game === 'draw') && ac && dmus.out && dmus.on)) return;
   if(dmus.next < ac.currentTime - 0.25){ dmus.next = ac.currentTime + 0.05; }
   while(dmus.next < ac.currentTime + 0.15){
     const at = dmus.next, s = dmus.step, ch = DCHORDS[Math.floor(s/16) % DCHORDS.length];
