@@ -710,7 +710,7 @@ function update(dt, now) {
 }
 function camRel(mx, my) { const f = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw)); const r = new THREE.Vector3(-f.z, 0, f.x); return { x: f.x * my + r.x * mx, z: f.z * my + r.z * mx }; }
 function walk(dt, mx, my, camFresh) {
-  let vx = 0, vz = 0; let spd = P.water ? 4.2 : 7.5;
+  let vx = 0, vz = 0; const running = keys['shift'] && !P.water; let spd = P.water ? 4.2 : running ? 13 : 7.5;
   if (camFresh) { P.yaw += cam.lean * 2.4 * dt * -1; if (cam.go) { vx = Math.sin(P.yaw) * spd * cam.go; vz = Math.cos(P.yaw) * spd * cam.go; } }
   if (mx || my) { const d = camRel(mx, my); vx = d.x * spd; vz = d.z * spd; const ty = Math.atan2(d.x, d.z); P.yaw += angDiff(P.yaw, ty) * Math.min(1, dt * 12); }
   // horizontal move with sliding along walls
@@ -737,7 +737,7 @@ function walk(dt, mx, my, camFresh) {
   for (const b of balls) { const dx = b.x - P.x, dz = b.z - P.z, d = Math.hypot(dx, dz); if (d < 1.1 && Math.abs(b.y - (P.y + 0.7)) < 1.4) { const k = 1 / (d || 1); b.vx = dx * k * 9 + vx * 0.5; b.vz = dz * k * 9 + vz * 0.5; b.vy = 6; sfx.kick(); } }
   // animate Reddy
   kid.root.position.set(P.x, P.y, P.z); kid.root.rotation.y = P.yaw;
-  const moving = Math.hypot(vx, vz) > 0.3; kid.ph += dt * (moving ? 11 : 0);
+  const moving = Math.hypot(vx, vz) > 0.3; kid.ph += dt * (moving ? (running ? 17 : 11) : 0);
   const sw = moving ? Math.sin(kid.ph) * 0.7 : 0;
   kid.legs[0].rotation.x = sw; kid.legs[1].rotation.x = -sw; kid.arms[0].rotation.x = -sw * 0.8; kid.arms[1].rotation.x = sw * 0.8;
   if (!P.grounded && !P.water) { kid.arms[0].rotation.z = -2.4; kid.arms[1].rotation.z = 2.4; } else { kid.arms[0].rotation.z = -0.15; kid.arms[1].rotation.z = 0.15; }
