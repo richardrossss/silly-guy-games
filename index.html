@@ -71,6 +71,7 @@ body:not(.touch) .tch{display:none!important}
   <div class="row" id="games">
     <button class="card desk" data-game="me"><span class="ic">🕺</span>Be the Silly Guy</button>
     <button class="card" data-game="fly"><span class="ic">☁️</span>Silly Guy Fly</button>
+    <button class="card" data-game="skate"><span class="ic">🛹</span>Skate</button>
     <button class="card" data-game="bubbles"><span class="ic">🫧</span>Bubble Pop</button>
     <button class="card" data-game="band"><span class="ic">🥁</span>Wiggle Band</button>
     <button class="card" data-game="puzzle"><span class="ic">🧩</span>Puzzle</button>
@@ -100,7 +101,7 @@ body:not(.touch) .tch{display:none!important}
   </div>
   <div id="err"></div>
   <p class="small tch">Tap a game, then Play. Turn the screen sideways for the biggest view.</p>
-  <p class="small desk">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color before you run out of moves. Drop anchors off the bottom, crack ice, and pop next to boxes to break them. M turns the Silly Dots music on or off.</p>
+  <p class="small desk">Setup: camera about chest high, 5 to 7 feet from him. Use the camera view in the corner to check he's fully in frame.<br>Clap your hands in any game to change the silly guy. Keys: C claps, F switches front/back, P shows or hides the camera view, Esc opens this menu.<br>Keyboard play: Be the Silly Guy uses arrows to move, Space to puff up, J to jump, click to clap. Skate uses Space to jump (and again in the air for a trick), Right/Left to go faster or slower. Fly uses Space to flap, arrows to steer, Up glide, Down dive, J loop. Bubble Pop uses the mouse. Puzzle uses mouse drag. Band uses the mouse for xylophone, A and Z for drums, Space to boom, J to crash. Marble Race uses Left/Right to steer, Up to go fast, Space to hop. Silly Dots works with touch or mouse: drag between dots of the same color before you run out of moves. Drop anchors off the bottom, crack ice, and pop next to boxes to break them. M turns the Silly Dots music on or off.</p>
 </div>
 
 <script type="module">
@@ -133,7 +134,8 @@ const HOW_TOUCH = {
   band: 'Tap the drums. Slide your finger up and down the colored bars. Tap the floor for a BOOM and the sky for a crash!',
   puzzle: 'Drag each piece to where it goes in the picture!',
   marble: 'Hold your finger on the left or right side to steer. Quick tap to hop. Two fingers to zoom!',
-  dots: 'Drag between dots of the same color. Make a square to pop them all!'
+  dots: 'Drag between dots of the same color. Make a square to pop them all!',
+  skate: 'Tap to jump over the cones! Tap again in the air to do a trick. Grab the stars!'
 };
 const ptrs = new Map(); let lastPtrType = TOUCH ? 'touch' : 'mouse';
 const playingTouch = ()=>state === 'play' && input === 'keys';
@@ -158,6 +160,7 @@ function touchDown(p){
     if(ptrs.size >= 2) doLoop();
     else { guy.vy -= 430*S; keyFlapT = now/1000; sfx.flap(); }
   } else if(game === 'band') bandTouch(p);
+  else if(game === 'skate') skTap();
 }
 function touchMove(p){
   if(game === 'band' && p.x > W*0.55){ const b = barFromY(p.y); if(b !== p.bar){ bandXylo(b); p.bar = b; } }
@@ -185,9 +188,10 @@ let state = 'setup';   // setup | loading | star | play
 let input = 'none';    // camera | keys
 let game = 'me';       // me | fly | bubbles | band | puzzle
 try { game = localStorage.getItem('sgf-game') || 'me'; } catch(e){}
-if(TOUCH && (game === 'me' || !['fly','bubbles','band','puzzle','marble','dots'].includes(game))) game = 'marble';
+if(TOUCH && (game === 'me' || !['fly','skate','bubbles','band','puzzle','marble','dots'].includes(game))) game = 'marble';
 const HOW = {
   me: 'You are the silly guy! Flap and flop to puff him up and start the music. Stop moving and he flops over. Clap to change him!',
+  skate: 'Jump for real to make him jump over the cones! Flap your arms in the air for a trick. Lean to go faster. Grab the stars!',
   fly: 'Flap to fly. Arms out to glide. Lean to steer. Arms down to dive. Jump to do a loop!',
   bubbles: 'Pop the bubbles with your hands! Listen for which color to pop.',
   draw: 'Paint in the air with your hands. Touch a paint pot to change color. Trace the shape. Jump for a new page.',
@@ -493,6 +497,12 @@ addEventListener('keydown', e=>{
     if(k === 'j' && !keys.j) meJump();
     keys[k] = true; return;
   }
+  if(game === 'skate'){
+    if(k === ' ' && !keys[' ']) skTap();
+    if(k === 'j' && !keys.j) skTrick();
+    if(k === ' ' || k.startsWith('arrow')) e.preventDefault();
+    keys[k] = true; return;
+  }
   if(game === 'marble'){
     if(k === ' ' && !keys[' ']) mrJump();
     if(k === ' ' || k.startsWith('arrow')) e.preventDefault();
@@ -523,6 +533,7 @@ function basePos(){
   if(state === 'play' && game === 'band') return { x:W*0.47, y:H*0.88 };
   if(state === 'play' && game === 'puzzle') return { x:W*0.07, y:H*0.99 };
   if(state === 'play' && game === 'marble') return { x:W*0.07, y:H*0.99 };
+  if(state === 'play' && game === 'skate') return { x:W*0.28, y:H*0.84 + 30*S };
   if(state === 'play' && game === 'dots') return { x: W > H*1.05 ? W*0.09 : W*0.14, y:H*0.99 };
   return { x:W/2, y:H*0.88 };
 }
@@ -566,6 +577,7 @@ function startPlay(){
   else if(game === 'puzzle'){ puz.level = 0; puz.stars = 0; startPuzzle(); }
   else if(game === 'dots'){ dots.lv = 0; dots.stars = 0; startDots(); }
   else if(game === 'draw'){ startDraw(); }
+  else if(game === 'skate'){ startSkate(); }
   else if(game === 'band'){ startBand(); flash('Make music!', 1.5); say('Wiggle your hands to make music!', true); }
   else { flash('Pop!', 1.2); bub.list = []; bub.target = null; bub.nextTarget = performance.now() + 1500; bub.nextSpawn = 0; startBubbleMusic(); say('Pop the bubbles with your hands!', true); }
   lastTip = performance.now();
@@ -590,6 +602,9 @@ function update(dt, now){
   if(sig.clap){ sig.clap = false; if((state === 'play' || state === 'star') && game !== 'marble' && game !== 'draw') clap(); }
   if(state === 'play' && game === 'me'){
     const r = updateMe(dt, now, fresh);
+    dirL = r.dirL; dirR = r.dirR; lift = r.lift;
+  } else if(state === 'play' && game === 'skate'){
+    const r = updateSkate(dt, now, fresh);
     dirL = r.dirL; dirR = r.dirR; lift = r.lift;
   } else if(state === 'play' && game === 'bubbles'){
     updateBubbles(dt, now, fresh);
@@ -884,6 +899,7 @@ function drawGuy(t){
   const hi = grounded ? N-1 : 0, ni = grounded ? N-3 : 2;
   const body = grounded ? chain : chain.slice().reverse(); // base/tail -> head
   ctx.save();
+  if(guyRot){ ctx.translate(guyRot.x, guyRot.y); ctx.rotate(guyRot.a); ctx.translate(-guyRot.x, -guyRot.y); }
   if(!grounded && guy.spinT > 0){
     const c = chain[4], a = (1 - guy.spinT/0.8)*Math.PI*2;
     ctx.translate(c.x,c.y); ctx.rotate(-a); ctx.translate(-c.x,-c.y);
@@ -891,7 +907,7 @@ function drawGuy(t){
   const sk = SKINS[skinI];
   BODY = sk.body; DARK = sk.dark; BAND = Array.isArray(sk.band) ? sk.band[0] : sk.band;
   const bandAt = j => Array.isArray(sk.band) ? sk.band[Math.floor(j/3) % sk.band.length] : sk.band;
-  if(grounded) drawBlower();
+  if(grounded){ if(game === 'skate' && state === 'play') drawSkateboard(); else drawBlower(); }
   // arms (tubes with fringe hands)
   for(const arm of arms){
     polyline(arm, AW, DARK);
@@ -946,7 +962,9 @@ function drawRow(){
 
 function draw(now){
   const t = now/1000;
-  if(game === 'marble' && state === 'play'){
+  if(game === 'skate' && state === 'play'){
+    drawSkate(t);
+  } else if(game === 'marble' && state === 'play'){
     drawMarble(t);
     drawMarbleHUD(t);
   } else if(game === 'draw' && state === 'play'){
@@ -3489,6 +3507,312 @@ setInterval(()=>{
   }
 }, 25);
 const POP_NOTES = [523.3, 587.3, 659.3, 784, 880, 1046.5];
+
+
+/* ---------- SILLY GUY SKATE ---------- */
+// side-scrolling skatepark: jump (or flap) to ollie over cones, land on boxes, launch off ramps,
+// flap in the air for tricks, grab stars. Crashes are just a silly tumble, never game over.
+const sk8 = { x:0, y:0, vy:0, air:false, speed:0, base:330, objs:[], stars:[], floats:[], nextGap:0, crashT:0, trick:null,
+  got:0, row:0, tricks:0, lastTip:0, tipI:0, rampLaunch:0, ang:0, dirL:{x:-0.8,y:-0.4}, dirR:{x:0.8,y:-0.4}, t0:0, dist:0, lastFlapTrick:0 };
+let guyRot = null;
+const SK_WHEEL = 16, SK_LEN = 130;
+const skGroundY = ()=>H*0.84;
+function startSkate(){
+  sk8.x = W*0.28; sk8.y = skGroundY(); sk8.vy = 0; sk8.air = false; sk8.speed = 0; sk8.base = 330;
+  sk8.objs = []; sk8.stars = []; sk8.floats = []; sk8.nextGap = W*0.9; sk8.crashT = 0; sk8.trick = null;
+  sk8.got = 0; sk8.row = 0; sk8.tricks = 0; sk8.t0 = sk8.lastTip = performance.now(); sk8.dist = 0; sk8.ang = 0;
+  skMusicStart();
+  flash('Skate!', 1.4);
+  say(input === 'camera' ? 'Jump to make me jump! Flap in the air for a trick!' : 'Tap to jump! Tap again in the air for a trick!', true);
+}
+// what's under the board at screen x: the street, a box top, or a ramp
+function skSurface(x){
+  let y = skGroundY(), slope = 0, onRamp = null;
+  for(const o of sk8.objs){
+    if(o.type === 'box' && x > o.x - o.w/2 && x < o.x + o.w/2) y = Math.min(y, skGroundY() - o.h);
+    if(o.type === 'ramp' && x > o.x && x < o.x + o.w){
+      const p = (x - o.x)/o.w, ry = skGroundY() - o.h*p;
+      if(ry < y){ y = ry; slope = -o.h/o.w; onRamp = o; }
+    }
+  }
+  return { y, slope, onRamp };
+}
+function skSpawn(){
+  const elapsed = (performance.now() - sk8.t0)/1000, X = W + 120*S;
+  const easy = elapsed < 12;
+  const pats = easy ? ['cone','cone','stars'] : ['cone','cone','box','ramp','ramp','stars','twocones','boxstars'];
+  const p = pats[Math.floor(Math.random()*pats.length)];
+  const g = skGroundY();
+  if(p === 'cone'){ sk8.objs.push({ type:'cone', x:X, w:44*S, h:58*S }); sk8.stars.push({ x:X, y:g - 190*S }); }
+  if(p === 'twocones'){ sk8.objs.push({ type:'cone', x:X, w:44*S, h:58*S }, { type:'cone', x:X + 70*S, w:44*S, h:58*S }); sk8.stars.push({ x:X + 35*S, y:g - 210*S }); }
+  if(p === 'box'){ sk8.objs.push({ type:'box', x:X, w:180*S, h:70*S, col:COLORS[Math.floor(Math.random()*COLORS.length)].c }); }
+  if(p === 'boxstars'){ sk8.objs.push({ type:'box', x:X, w:220*S, h:70*S, col:COLORS[Math.floor(Math.random()*COLORS.length)].c });
+    for(let i=0;i<3;i++) sk8.stars.push({ x:X - 60*S + i*60*S, y:g - 70*S - 90*S }); }
+  if(p === 'ramp'){
+    sk8.objs.push({ type:'ramp', x:X, w:230*S, h:95*S });
+    for(let i=0;i<5;i++){ const a = i/4; sk8.stars.push({ x:X + 300*S + i*95*S, y:g - 95*S - 260*S*Math.sin(a*Math.PI) - 60*S }); }
+  }
+  if(p === 'stars'){ for(let i=0;i<4;i++) sk8.stars.push({ x:X + i*80*S, y:g - 80*S - (i%2)*40*S }); }
+  sk8.nextGap = (p === 'ramp' ? 1100 : rnd(520, 820))*S;
+}
+function skOllie(big){
+  if(sk8.air || sk8.crashT > 0) return false;
+  sk8.vy = -(big ? 1050 : 950)*S; sk8.air = true;
+  skSound('pop');
+  return true;
+}
+function skTrick(){
+  if(!sk8.air || sk8.trick || sk8.crashT > 0) return;
+  const types = ['kickflip','360','superman','kickflip','360'];
+  const type = types[Math.floor(Math.random()*types.length)];
+  sk8.trick = { type, t:0, dur: type === 'superman' ? 0.6 : 0.5 };
+  skSound('whoosh');
+}
+function skTap(){ audio(); if(!skOllie(false)) skTrick(); }
+function skCrash(o){
+  if(sk8.crashT > 0) return;
+  o.hit = true; sk8.crashT = 1.1; sk8.trick = null; dipT = 0.7;
+  skSound('bonk');
+  sk8.floats.push({ x:sk8.x, y:sk8.y - 220*S, txt:'Whoops!', c:'#ff4f5e', life:1.2 });
+  say(['Whoops!','Oopsie!','Bonk!','Uh oh!'][Math.floor(Math.random()*4)], true);
+}
+function skLand(){
+  sk8.air = false; sk8.vy = 0;
+  skSound('land');
+  if(sk8.trick){
+    const names = { kickflip:'Kickflip!', '360':'Three Sixty!', superman:'Superman!' };
+    const n = names[sk8.trick.type];
+    sk8.trick = null; sk8.tricks++;
+    sk8.floats.push({ x:sk8.x, y:sk8.y - 260*S, txt:n, c:'#ffd23b', life:1.4 });
+    skGetStar(sk8.x, sk8.y - 120*S, true);
+    say(n, true);
+  }
+}
+function skGetStar(x, y, bonus){
+  sk8.got++; sk8.row++;
+  skSound('ding');
+  for(let i=0;i<12;i++){ const a = Math.random()*7, v = rnd(120,320)*S; bits.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:rnd(0.4,0.8), c:i%2 ? '#ffd23b' : '#fff', s:rnd(5,9)*S, rot:0, vr:rnd(-8,8), g:0.3 }); }
+  if(sk8.row >= 10){
+    sk8.row = 0; sfx.yay(); flash('Hooray!', 2); if(!bonus) say('Ten stars! Hooray!', true);
+    for(let i=0;i<120;i++){ const col = COLORS[i%COLORS.length].c; bits.push({ x:rnd(0,W), y:rnd(-H*0.3,0), vx:rnd(-60,60)*S, vy:rnd(0,200)*S, life:rnd(2,3.5), c:col, s:rnd(6,12)*S, rot:rnd(0,6), vr:rnd(-6,6), g:0.25 }); }
+  }
+}
+function updateSkate(dt, now, fresh){
+  const t = now/1000;
+  // controls
+  let pump = 0;
+  if(input === 'camera' && fresh && sig.pts){
+    sk8.dirL = sig.armDirL; sk8.dirR = sig.armDirR;
+    if(sig.jump){ sig.jump = false; if(!skOllie(true)) skTrick(); }
+    if(sig.flapLift > 3 && now - sk8.lastFlapTrick > 500){
+      sk8.lastFlapTrick = now;
+      if(sk8.air) skTrick(); else skOllie(false);
+    }
+    pump = clamp(sig.lean, -1, 1);
+    if($('#msg').textContent === 'I can\'t see you!') setMsg('');
+  } else if(input === 'keys'){
+    pump = (keys['arrowright'] ? 1 : 0) - (keys['arrowleft'] ? 1 : 0);
+    const e = sk8.air ? 0.9 + Math.sin(t*12)*0.3 : 0.2 + Math.sin(t*3)*0.25;
+    sk8.dirL = { x:-Math.cos(e), y:-Math.sin(e) }; sk8.dirR = { x:Math.cos(e), y:-Math.sin(e) };
+  } else if(input === 'camera' && now - lastPoseT > 1500){
+    if(!msgUntil) $('#msg').textContent = 'I can\'t see you!';
+    if(now - lastLostSay > 9000){ say('Where did you go?'); lastLostSay = now; }
+  }
+  // speed: picks up over time, a little faster or slower when you lean
+  sk8.base = Math.min(520, 330 + (now - sk8.t0)/1000*2.5);
+  let target = sk8.base*(1 + pump*0.3)*S;
+  if(sk8.crashT > 0){ sk8.crashT -= dt; target = sk8.crashT > 0.5 ? 0 : target*0.5; }
+  sk8.speed = lerp(sk8.speed, target, 1 - Math.exp(-(sk8.crashT > 0 ? 6 : 1.5)*dt));
+  speed = sk8.speed;
+  const mv = sk8.speed*dt;
+  sk8.dist += mv;
+  for(const o of sk8.objs) o.x -= mv;
+  for(const s of sk8.stars) s.x -= mv;
+  sk8.objs = sk8.objs.filter(o=>o.x + (o.w||0) > -300*S);
+  sk8.stars = sk8.stars.filter(s=>!s.got && s.x > -100*S);
+  sk8.nextGap -= mv;
+  if(sk8.nextGap <= 0) skSpawn();
+
+  // board physics
+  const prevY = sk8.y;
+  const surf = skSurface(sk8.x);
+  if(sk8.air){
+    sk8.vy += 2500*S*dt;
+    sk8.y += sk8.vy*dt;
+    if(sk8.vy > 0 && sk8.y >= surf.y && prevY <= surf.y + 14*S){ sk8.y = surf.y; skLand(); }
+    else if(sk8.y > surf.y + 14*S && sk8.y > skGroundY()){ sk8.y = skGroundY(); skLand(); }
+  } else {
+    if(surf.y > sk8.y + 2*S){
+      // rolled off the end of a ramp or a box
+      const was = skSurface(sk8.x - mv*1.5);
+      sk8.air = true;
+      sk8.vy = was.onRamp ? -1150*S - sk8.speed*0.6 : 0;
+      if(was.onRamp){ skSound('whoosh'); if(Math.random() < 0.5) say('Wheee!'); }
+    } else if(surf.onRamp || surf.y >= sk8.y - 10*S) sk8.y = surf.y;   // ramps carry him up; box sides don't
+  }
+  // hitting the side of a cone or box
+  for(const o of sk8.objs){
+    if(o.hit || o.type === 'ramp') continue;
+    const front = sk8.x + SK_LEN*0.4*S, back = sk8.x - SK_LEN*0.4*S;
+    const left = o.x - o.w/2, right = o.x + o.w/2, top = skGroundY() - o.h;
+    if(front > left && back < right && sk8.y > top + 12*S){
+      if(o.type === 'cone' || front - left < 40*S) skCrash(o);
+    }
+  }
+  // stars
+  const head = chain[N-1];
+  for(const s of sk8.stars){
+    if(s.got) continue;
+    if(Math.hypot(s.x - sk8.x, s.y - (sk8.y - 60*S)) < 75*S || Math.hypot(s.x - head.x, s.y - head.y) < 60*S){ s.got = true; skGetStar(s.x, s.y); }
+  }
+  // tricks run while in the air
+  if(sk8.trick){ sk8.trick.t += dt; if(sk8.trick.t > sk8.trick.dur) sk8.trick.t = sk8.trick.dur; }
+  // board tilt
+  const tgtAng = sk8.air ? clamp(sk8.vy/(2500*S), -0.35, 0.35) : Math.atan(surf.slope);
+  sk8.ang = lerp(sk8.ang, sk8.crashT > 0.5 ? 0.5 : tgtAng, 1 - Math.exp(-10*dt));
+  // the silly guy rides the board
+  guy.x = sk8.x; guy.y = sk8.y - SK_WHEEL*S + 46*S;
+  guy.vx = 0; guy.vy = sk8.vy;
+  for(const f of sk8.floats){ f.y -= 60*S*dt; f.life -= dt; }
+  sk8.floats = sk8.floats.filter(f=>f.life > 0);
+  if(now - sk8.lastTip > 14000 && now - lastSpeak > 7000){
+    const tips = input === 'camera' ? ['Jump over the cones!','Flap your arms in the air for a trick!','Lean to go faster!','Get the stars!']
+                                    : ['Tap to jump over the cones!','Tap in the air for a trick!','Get the stars!'];
+    say(tips[sk8.tipI++ % tips.length]); sk8.lastTip = now;
+  }
+  return { dirL:sk8.dirL, dirR:sk8.dirR, lift: sk8.air ? 3 : 0 };
+}
+
+function drawSkateBG(t){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#62c1ff'); g.addColorStop(1,'#ffe1b8');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // sun
+  ctx.fillStyle = '#ffdc4d'; ctx.beginPath(); ctx.arc(W*0.85, H*0.16, 52*S, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  for(const c of clouds){ const r = 34*S*c.s; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,7); ctx.arc(c.x+r,c.y-r*0.35,r*1.1,0,7); ctx.arc(c.x+r*2,c.y,r*0.9,0,7); ctx.fill(); }
+  // city skyline, two layers
+  const gy = skGroundY();
+  const layer = (par, col, base, hMin, hMax, wid, seed)=>{
+    ctx.fillStyle = col;
+    const off = (sk8.dist*par) % (wid*S);
+    for(let i=-1; i<W/(wid*S)+2; i++){
+      const n = Math.floor((sk8.dist*par)/(wid*S)) + i;
+      const h = (hMin + ((Math.sin(n*12.9898 + seed)*43758.5453) % 1 + 1) % 1*(hMax - hMin))*S;
+      const x = i*wid*S - off;
+      ctx.fillRect(x, base - h, wid*S - 6*S, h + 4*S);
+    }
+  };
+  layer(0.15, '#9fc3e0', gy - 90*S, 120, 300, 90, 1);
+  layer(0.35, '#7aa6cc', gy - 60*S, 80, 200, 70, 7);
+  // fence
+  ctx.fillStyle = '#e9d6b8'; ctx.fillRect(0, gy - 70*S, W, 70*S);
+  ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.lineWidth = 4*S;
+  const fo = (sk8.dist*0.7) % (60*S);
+  for(let x = -fo; x < W; x += 60*S){ ctx.beginPath(); ctx.moveTo(x, gy - 70*S); ctx.lineTo(x, gy); ctx.stroke(); }
+  // ground
+  ctx.fillStyle = '#b9bcc4'; ctx.fillRect(0, gy, W, H - gy);
+  ctx.fillStyle = '#a5a9b3';
+  const so = sk8.dist % (160*S);
+  for(let x = -so; x < W; x += 160*S) ctx.fillRect(x, gy, 5*S, H - gy);
+  ctx.fillStyle = '#8f939d'; ctx.fillRect(0, gy, W, 6*S);
+}
+function drawSkateObjs(t){
+  const gy = skGroundY();
+  for(const o of sk8.objs){
+    if(o.type === 'cone'){
+      ctx.save(); ctx.translate(o.x, gy);
+      if(o.hit) ctx.rotate(1.3);
+      ctx.fillStyle = '#ff7a1a';
+      ctx.beginPath(); ctx.moveTo(-o.w/2, 0); ctx.lineTo(-6*S, -o.h); ctx.lineTo(6*S, -o.h); ctx.lineTo(o.w/2, 0); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(-o.w*0.3, -o.h*0.55, o.w*0.6, 9*S);
+      ctx.fillStyle = '#d65c00'; ctx.fillRect(-o.w*0.65, -6*S, o.w*1.3, 6*S);
+      ctx.restore();
+    } else if(o.type === 'box'){
+      ctx.fillStyle = o.col; ctx.beginPath(); ctx.roundRect(o.x - o.w/2, gy - o.h, o.w, o.h, 8*S); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(o.x - o.w/2, gy - o.h, o.w, 8*S);
+      ctx.fillStyle = '#6b7280'; ctx.fillRect(o.x - o.w/2 + 4*S, gy - o.h - 5*S, o.w - 8*S, 5*S);
+    } else if(o.type === 'ramp'){
+      ctx.fillStyle = '#c98a4b';
+      ctx.beginPath(); ctx.moveTo(o.x, gy); ctx.lineTo(o.x + o.w, gy - o.h); ctx.lineTo(o.x + o.w, gy); ctx.fill();
+      ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 4*S;
+      for(let i=1;i<5;i++){ const x = o.x + o.w*i/5; ctx.beginPath(); ctx.moveTo(x, gy - o.h*i/5); ctx.lineTo(x, gy); ctx.stroke(); }
+      ctx.fillStyle = '#6b7280'; ctx.fillRect(o.x + o.w - 6*S, gy - o.h, 6*S, o.h);
+    }
+  }
+  for(const s of sk8.stars) star5(s.x, s.y + Math.sin(t*4 + s.x*0.01)*5*S, 22*S, '#ffd23b');
+}
+function drawSkateboard(){
+  // the board, drawn in place of the blower
+  const tr = sk8.trick, p = tr ? tr.t/tr.dur : 0;
+  const x = guy.x, y = guy.y - 46*S + 4*S;
+  ctx.save(); ctx.translate(x, y);
+  let sy = 1;
+  if(tr && tr.type === 'kickflip') sy = Math.cos(p*Math.PI*2);
+  ctx.scale(1, sy || 0.05);
+  const L = SK_LEN*S, sk = SKINS[skinI];
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.fillStyle = '#2b2f45'; ctx.beginPath(); ctx.roundRect(-L/2, -4*S, L, 10*S, 5*S); ctx.fill();
+  ctx.fillStyle = Array.isArray(sk.band) ? sk.band[0] : sk.band; ctx.fillRect(-L*0.3, -2*S, L*0.6, 4*S);
+  ctx.fillStyle = '#8a8fa3'; ctx.fillRect(-L*0.33, 6*S, 14*S, 5*S); ctx.fillRect(L*0.33 - 14*S, 6*S, 14*S, 5*S);
+  for(const wx of [-L*0.3, L*0.3]){ dot(wx, 14*S, 9*S, '#ffd23b'); dot(wx, 14*S, 3.5*S, '#c48a00'); }
+  ctx.restore();
+}
+function drawSkate(t){
+  drawSkateBG(t);
+  drawSkateObjs(t);
+  // shadow
+  const gy = skSurface(sk8.x).y;
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(sk8.x, gy + 2*S, 70*S*clamp(1 - (gy - sk8.y)/(500*S), 0.3, 1), 9*S, 0, 0, 7); ctx.fill();
+  const tr = sk8.trick, p = tr ? tr.t/tr.dur : 0;
+  let a = sk8.ang;
+  if(tr && tr.type === '360') a -= p*Math.PI*2;
+  if(tr && tr.type === 'superman') a += Math.sin(p*Math.PI)*-1.1;
+  guyRot = { x:sk8.x, y:sk8.y - 30*S, a };
+  drawGuy(t);
+  guyRot = null;
+  // floating words
+  ctx.textAlign = 'center';
+  for(const f of sk8.floats){
+    ctx.globalAlpha = clamp(f.life*1.5, 0, 1);
+    ctx.font = `800 ${54*S}px "Baloo 2", sans-serif`;
+    ctx.lineWidth = 8*S; ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeText(f.txt, f.x, f.y);
+    ctx.fillStyle = f.c; ctx.fillText(f.txt, f.x, f.y);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  // star row
+  for(let i=0;i<10;i++) star5(W - 30*S - i*34*S, 34*S, 14*S, i < sk8.row ? '#ffd23b' : 'rgba(255,255,255,.45)');
+}
+
+/* skate sounds + music: a bouncy surf-punk beat */
+function skSound(kind){
+  if(!ac) return;
+  const at = ac.currentTime; noiseBuffer();
+  if(kind === 'pop'){ noiseAt(at, 0.05, 0.5, 'bandpass', 2500); oscAt(at, 600, 200, 0.08, 'square', 0.12); }
+  if(kind === 'land'){ noiseAt(at, 0.08, 0.5, 'lowpass', 900); oscAt(at, 160, 60, 0.12, 'sine', 0.4); }
+  if(kind === 'bonk'){ oscAt(at, 300, 80, 0.35, 'square', 0.15); oscAt(at + 0.1, 220, 60, 0.3, 'triangle', 0.25); }
+  if(kind === 'ding'){ oscAt(at, 1568, 1568, 0.25, 'sine', 0.18); oscAt(at + 0.06, 2093, 2093, 0.3, 'sine', 0.14); }
+  if(kind === 'whoosh'){ noiseAt(at, 0.35, 0.25, 'bandpass', 1200); oscAt(at, 400, 1200, 0.3, 'sine', 0.08); }
+}
+const SKB = 60/150/2;   // eighth notes at 150 bpm
+const SK_BASS = [82.4, 82.4, 110, 98];   // E E A G
+const SK_LEAD = [659,0,784,0,880,784,659,0, 587,0,659,0,784,0,0,0];
+const skm = { next:0, step:0 };
+function skMusicStart(){ audio(); noiseBuffer(); if(ac){ skm.next = ac.currentTime + 0.1; skm.step = 0; } }
+setInterval(()=>{
+  if(!(state === 'play' && game === 'skate' && ac)) return;
+  if(skm.next < ac.currentTime - 0.2) skm.next = ac.currentTime + 0.05;
+  while(skm.next < ac.currentTime + 0.12){
+    const at = skm.next, i = skm.step, s = i % 8, bar = Math.floor(i/8) % 4;
+    const quiet = sk8.crashT > 0.3 ? 0.4 : 1;
+    if(s % 4 === 0) inst.kick(at, 0.5*quiet);
+    if(s % 4 === 2) inst.snare(at, 0.3*quiet);
+    inst.hat(at, 0.04*quiet);
+    const b = SK_BASS[bar]; oscAt(at, b, b*0.99, SKB*0.9, 'sawtooth', 0.07*quiet); oscAt(at, b*2, b*1.98, SKB*0.6, 'triangle', 0.1*quiet);
+    const f = SK_LEAD[i % 16]; if(f && (Math.floor(i/16) % 2 === 1)) oscAt(at, f, f, 0.16, 'square', 0.035*quiet);
+    skm.next += SKB; skm.step++;
+  }
+}, 25);
 
 /* ---------- live refresh: reload when a new version is published ---------- */
 let myVersion = null, pendingReload = false;
