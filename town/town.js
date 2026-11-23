@@ -628,18 +628,23 @@ async function startCamera() {
   const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
   const opts = (d) => ({ baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate: d }, runningMode: 'VIDEO', numPoses: 1, minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4 });
   try { cam.lm = await PoseLandmarker.createFromOptions(fs, opts('GPU')); } catch (e) { cam.lm = await PoseLandmarker.createFromOptions(fs, opts('CPU')); }
-  cam.on = true; $('#pv').style.display = 'block'; toast('Lean to turn! Hands up to go! Jump!', 3);
+  cam.on = true; $('#pv').style.display = 'block'; toast('Turn or lean to turn! Hands up to go! Jump!', 3);
 }
 function readCamera(now) {
   const video = $('#video'); if (!cam.lm || video.readyState < 2 || video.currentTime === cam.lastVT) return; cam.lastVT = video.currentTime;
   let r; try { r = cam.lm.detectForVideo(video, now); } catch (e) { return; }
   const lm = r && r.landmarks && r.landmarks[0]; if (!lm) return;
-  if (!cam.sm) cam.sm = lm.map((p) => ({ x: p.x, y: p.y })); else lm.forEach((p, i) => { cam.sm[i].x += (p.x - cam.sm[i].x) * 0.6; cam.sm[i].y += (p.y - cam.sm[i].y) * 0.6; });
+  if (!cam.sm) cam.sm = lm.map((p) => ({ x: p.x, y: p.y, z: p.z || 0 })); else lm.forEach((p, i) => { cam.sm[i].x += (p.x - cam.sm[i].x) * 0.6; cam.sm[i].y += (p.y - cam.sm[i].y) * 0.6; cam.sm[i].z += ((p.z || 0) - cam.sm[i].z) * 0.3; });
   const s = cam.sm, pt = (i) => ({ x: 1 - s[i].x, y: s[i].y }); // mirrored, like a mirror
   const L = pt(11), R = pt(12), hl = pt(23), hr = pt(24), lw = pt(15), rw = pt(16), nose = pt(0);
   const sw = Math.max(0.05, Math.abs(R.x - L.x)), shx = (L.x + R.x) / 2, shy = (L.y + R.y) / 2, hipx = (hl.x + hr.x) / 2;
   const lean = ((shx - hipx) / sw) * 1.4 + ((Math.max(L.y, R.y) === L.y ? 1 : -1) * Math.abs(L.y - R.y) / sw) * 0.0;
-  cam.lean = Math.abs(lean) < 0.12 ? 0 : clamp((lean - Math.sign(lean) * 0.12) * 2, -1, 1);
+  const leanT = Math.abs(lean) < 0.12 ? 0 : clamp((lean - Math.sign(lean) * 0.12) * 2, -1, 1);
+  // turning your body: one shoulder swings toward the camera, the other away (tan of the turn angle)
+  const twist = (s[11].z - s[12].z) / sw;
+  const twistT = Math.abs(twist) < 0.25 ? 0 : clamp(-(twist - Math.sign(twist) * 0.25) * 1.6, -1, 1);
+  cam.twist = twistT;
+  cam.lean = clamp(leanT + twistT, -1, 1);
   cam.go = (lw.y < nose.y && rw.y < nose.y) ? 1 : (lw.y < shy && rw.y < shy ? 0.6 : 0);
   const dt = cam.prevT ? (now - cam.prevT) / 1000 : 0.033; cam.prevT = now;
   if (cam.prevY != null && dt > 0 && dt < 0.3) { const vy = (shy - cam.prevY) / sw / dt; if (vy < -3 && now > cam.cool) { cam.jump = true; cam.cool = now + 700; } }
@@ -833,7 +838,10 @@ function updateCamera(dt) {
   const m = me(); const inside = inRoom(P.x, P.z);
   const moving = P.inCar ? Math.abs(P.inCar.speed) > 2 : (Math.abs(stick.x) + Math.abs(stick.y) > 0.2 || keys['w'] || keys['s'] || keys['arrowup'] || keys['arrowdown'] || (cam.on && cam.go));
   const behind = (P.inCar ? P.inCar.yaw : P.yaw) + Math.PI;
-  if (moving && performance.now() - lastOrbit > 1500) camYaw += angDiff(camYaw, behind) * Math.min(1, dt * (P.inCar ? 2.5 : 1.2));
+  const bodyCtl = cam.on && performance.now() - cam.lastSeen < 800;
+  // with camera play the view always swings around behind him, so it turns every time his body turns
+  if (bodyCtl) camYaw += angDiff(camYaw, behind) * Math.min(1, dt * (P.inCar ? 4 : 6));
+  else if (moving && performance.now() - lastOrbit > 1500) camYaw += angDiff(camYaw, behind) * Math.min(1, dt * (P.inCar ? 2.5 : 1.2));
   const dist = inside ? 7 : P.inCar ? camDist + 3 : camDist; const pitch = inside ? Math.max(camPitch, 0.65) : camPitch;
   const tx = m.x, ty = m.y + (P.inCar ? 1.6 : 1.3), tz = m.z;
   let cx = tx + Math.sin(camYaw) * Math.cos(pitch) * dist, cz = tz + Math.cos(camYaw) * Math.cos(pitch) * dist, cy = ty + Math.sin(pitch) * dist;
